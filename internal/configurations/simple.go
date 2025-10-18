@@ -73,14 +73,7 @@ func BuildWithLogger(specificationID, imageDir, artifactDir, libvirtConnectionUR
 }
 
 // List prints the available specifications and whether an image exists locally.
-func List(imageDir string) error {
-	return ListWithLogger(imageDir, nil)
-}
-
-// ListWithLogger logs the available specifications and whether an image exists locally using the provided logger.
-func ListWithLogger(imageDir string, logger *slog.Logger) error {
-	logger = logging.Ensure(logger).With("component", "config.simple")
-
+func List(imageDir string) ([]string, []bool, error) {
 	if imageDir == "" {
 		imageDir = "/var/libvirt/mime/images"
 	}
@@ -89,18 +82,23 @@ func ListWithLogger(imageDir string, logger *slog.Logger) error {
 	specificationRepository := embeddedrepositories.NewEmbeddedSpecificationRepository()
 
 	specifications, err := specificationRepository.ListAll()
+
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
-	for _, specification := range specifications {
+	built := make([]bool, len(specifications))
+	specIDs := make([]string, len(specifications))
+
+	for i, specification := range specifications {
+		specIDs[i] = specification.ID
 		latestImage, err := imageRepository.LatestForSpec(specification.ID)
-		if err != nil {
-			return err
-		}
 
-		logger.Info("specification status", "specification", specification.ID, "image_available", latestImage != nil)
+		if err != nil {
+			return nil, nil, err
+		}
+		built[i] = (latestImage != nil)
 	}
 
-	return nil
+	return specIDs, built, nil
 }

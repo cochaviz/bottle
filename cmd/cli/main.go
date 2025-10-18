@@ -115,10 +115,16 @@ func newListCommand(logger *slog.Logger) *cobra.Command {
 				return err
 			}
 
-			if err := simple.ListWithLogger(imageDir, cmdLogger); err != nil {
+			specs, built, err := simple.List(imageDir)
+			if err != nil {
 				cmdLogger.Error("listing specifications failed", "error", err)
 				return err
 			}
+
+			for i, spec := range specs {
+				fmt.Printf("%s\t(built: %t)\n", spec, built[i])
+			}
+
 			return nil
 		},
 	}
