@@ -291,6 +291,11 @@ func ensureNetwork(conn *libvirt.Connect, name string, xmlPath *string) error {
 	}
 
 	if !active {
+		// First, we have to destroy the network if it's active
+		if err := network.Destroy(); err != nil {
+			return fmt.Errorf("destroy network: %w", err)
+		}
+		// Only then, we can recreate the network (otherwise we'll get an error)
 		if err := network.Create(); err != nil {
 			return fmt.Errorf("start network: %w", err)
 		}

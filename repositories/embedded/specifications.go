@@ -74,8 +74,8 @@ type EmbeddedSpecificationRepository struct {
 	order   []string
 }
 
-// NewEmbeddedSpecRepository constructs a repository pre-populated with embedded specs.
-func NewEmbeddedSpecRepository() *EmbeddedSpecificationRepository {
+// NewEmbeddedSpecificationRepository constructs a repository pre-populated with embedded specs.
+func NewEmbeddedSpecificationRepository() *EmbeddedSpecificationRepository {
 	repo := &EmbeddedSpecificationRepository{
 		history: make(map[string][]models.SandboxSpecification),
 	}

@@ -1,73 +1,87 @@
-package configurations
+package simple
 
 import (
-	"cochaviz/mime/drivers/build/libvirt"
-	"cochaviz/mime/models"
-	embedded_repostories "cochaviz/mime/repositories/embedded"
-	local_repostories "cochaviz/mime/repositories/local"
-	"cochaviz/mime/services"
 	"fmt"
 	"os"
+
+	"cochaviz/mime/drivers/build/libvirt"
+	"cochaviz/mime/models"
+	embeddedrepositories "cochaviz/mime/repositories/embedded"
+	localrepositories "cochaviz/mime/repositories/local"
+	"cochaviz/mime/services"
+	"cochaviz/mime/setup"
 )
 
-// Simple end-to-end function for building a simple image
-func build(
-	specificationID string,
-	imageDir string,
-	artifactDir string,
-	libvirtConnectionURI string,
-) {
-	if libvirtConnectionURI == "" {
-		libvirtConnectionURI = "qemu:///system"
+var DefaultArtifactDir = setup.StorageDir + "artifacts"
+var DefaultImageDir = setup.StorageDir + "images"
+var DefaultConnectionURI = "qemu:///system"
+
+// Build executes the end-to-end flow to produce an image for the requested specification.
+func Build(specificationID, imageDir, artifactDir, libvirtConnectionURI string) error {
+	if specificationID == "" {
+		return fmt.Errorf("specification id is required")
 	}
-	buildDir := os.TempDir()
+	if imageDir == "" {
+		imageDir = DefaultArtifactDir
+	}
+	if artifactDir == "" {
+		artifactDir = DefaultArtifactDir
+	}
+
+	if libvirtConnectionURI == "" {
+		libvirtConnectionURI = DefaultConnectionURI
+	}
+
+	buildDir, err := os.MkdirTemp("", "mime-build-*")
+	if err != nil {
+		return fmt.Errorf("create build directory: %w", err)
+	}
+	defer os.RemoveAll(buildDir)
 
 	buildService := services.BuildService{
 		EnvironmentPreparer: &libvirt.LibvirtBuildEnvironmentPreparer{
 			BaseDir:            buildDir,
 			StoragePoolCleaner: libvirt.LibvirtStoragePoolCleaner{},
-			ConnectionURI:      libvirtConnectionURI,
 		},
 		BuildDriver:                    &libvirt.VirtInstallBuilder{},
-		SandboxSpecificationRepository: &embedded_repostories.EmbeddedSpecificationRepository{},
-		ImageRepository: &local_repostories.LocalImageRepository{
+		SandboxSpecificationRepository: embeddedrepositories.NewEmbeddedSpecificationRepository(),
+		ImageRepository: &localrepositories.LocalImageRepository{
 			BaseDir: imageDir,
 		},
-		ArtifactStore: &local_repostories.LocalArtifactStore{
+		ArtifactStore: &localrepositories.LocalArtifactStore{
 			BaseDir: artifactDir,
 		},
 	}
 
-	err := buildService.Run(
-		&models.BuildRequest{
-			SpecificationID: specificationID,
-		},
-	)
-	if err != nil {
-		panic(err)
+	if err := buildService.Run(&models.BuildRequest{SpecificationID: specificationID}); err != nil {
+		return err
 	}
+
+	return nil
 }
 
-// Lists all available specifications and whether the are built
-func list(
-	imageDir string,
-) {
-	imageRepository := &local_repostories.LocalImageRepository{
-		BaseDir: imageDir,
+// List prints the available specifications and whether an image exists locally.
+func List(imageDir string) error {
+	if imageDir == "" {
+		imageDir = "/var/libvirt/mime/images"
 	}
-	specificationRepository := embedded_repostories.EmbeddedSpecificationRepository{}
+
+	imageRepository := &localrepositories.LocalImageRepository{BaseDir: imageDir}
+	specificationRepository := embeddedrepositories.NewEmbeddedSpecificationRepository()
 
 	specifications, err := specificationRepository.ListAll()
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	for _, specification := range specifications {
 		latestImage, err := imageRepository.LatestForSpec(specification.ID)
 		if err != nil {
-			panic(err)
+			return err
 		}
 
 		fmt.Printf("%s: %t\n", specification.ID, latestImage != nil)
 	}
+
+	return nil
 }

@@ -1,0 +1,57 @@
+table ip lab_nat {
+  chain prerouting {
+    type nat hook prerouting priority -100;
+
+    # Probe & trace for debugging (safe to keep)
+    ip saddr {{ .VMNetworkCIDR }} counter meta nftrace set 1
+
+    # --- ALLOWLIST: public DNS (rate-limited, no DNAT) ---
+    ip saddr {{ .VMNetworkCIDR }} ip daddr { {{ join .DNSAllowlist ", " }} } udp dport 53 limit rate {{ .DNSRate }} burst {{ .DNSBurst }} counter accept
+    ip saddr {{ .VMNetworkCIDR }} ip daddr { {{ join .DNSAllowlist ", " }} } tcp dport 53 limit rate {{ .DNSRate }} burst {{ .DNSBurst }} counter accept
+
+    # DNS hijack → INetSim
+    ip saddr {{ .VMNetworkCIDR }} udp dport 53 counter dnat to {{ .InetSimIP }}:53
+    ip saddr {{ .VMNetworkCIDR }} tcp dport 53 counter dnat to {{ .InetSimIP }}:53
+
+    # Generic "internet" trap (exclude local subnets + mcast/bcast)
+    ip saddr {{ .VMNetworkCIDR }} ip daddr != { {{ .VMNetworkCIDR }}, {{ .InetNetworkCIDR }}, 224.0.0.0/4, 255.255.255.255 } \
+      meta l4proto { tcp, udp } counter dnat to {{ .InetSimIP }}
+
+    # ICMP echo → INetSim (ping to public IPs)
+    ip saddr {{ .VMNetworkCIDR }} ip protocol icmp icmp type echo-request \
+      ip daddr != { {{ .VMNetworkCIDR }}, {{ .InetNetworkCIDR }}, 224.0.0.0/4, 255.255.255.255 } \
+      counter dnat to {{ .InetSimIP }}
+  }
+
+  chain postrouting {
+    type nat hook postrouting priority 100;
+    # SNAT all VM→br_inet flows; INetSim needs no return routes
+    ip saddr {{ .VMNetworkCIDR }} counter masquerade
+  }
+}
+
+table inet lab_flt {
+  chain input {
+    type filter hook input priority 0;
+    policy accept;
+  }
+
+  chain output {
+    type filter hook output priority 0;
+    policy accept;
+  }
+
+  chain forward {
+    type filter hook forward priority -100;
+    policy drop;
+
+    ct state established,related counter accept
+
+    # --- ALLOWLIST: permit VM → public DNS egress (rate-limited) ---
+    ip saddr {{ .VMNetworkCIDR }} ip daddr { {{ join .DNSAllowlist ", " }} } udp dport 53 limit rate {{ .DNSRate }} burst {{ .DNSBurst }} counter accept
+    ip saddr {{ .VMNetworkCIDR }} ip daddr { {{ join .DNSAllowlist ", " }} } tcp dport 53 limit rate {{ .DNSRate }} burst {{ .DNSBurst }} counter accept
+
+    # VM → INetSim (egress is the bridge master br_inet at forward time)
+    oifname "{{ .InetBridge }}" ip saddr {{ .VMNetworkCIDR }} counter accept
+  }
+}
