@@ -4,7 +4,7 @@ import (
 	"errors"
 	"strings"
 
-	models "cochaviz/mime/models"
+	models "cochaviz/mime/internal/models"
 )
 
 const (

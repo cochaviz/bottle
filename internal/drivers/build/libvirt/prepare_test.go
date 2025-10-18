@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"cochaviz/mime/models"
+	"cochaviz/mime/internal/models"
 )
 
 type stubCleaner struct {

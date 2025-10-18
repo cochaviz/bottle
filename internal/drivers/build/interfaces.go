@@ -1,7 +1,7 @@
 package build
 
 import (
-	models "cochaviz/mime/models"
+	models "cochaviz/mime/internal/models"
 )
 
 // BuildEnvironmentPreparer provisions and cleans up the build environment.

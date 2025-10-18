@@ -2,14 +2,16 @@ package simple
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 
-	"cochaviz/mime/drivers/build/libvirt"
-	"cochaviz/mime/models"
-	embeddedrepositories "cochaviz/mime/repositories/embedded"
-	localrepositories "cochaviz/mime/repositories/local"
-	"cochaviz/mime/services"
-	"cochaviz/mime/setup"
+	"cochaviz/mime/internal/drivers/build/libvirt"
+	"cochaviz/mime/internal/logging"
+	"cochaviz/mime/internal/models"
+	embeddedrepositories "cochaviz/mime/internal/repositories/embedded"
+	localrepositories "cochaviz/mime/internal/repositories/local"
+	"cochaviz/mime/internal/services"
+	"cochaviz/mime/internal/setup"
 )
 
 var DefaultArtifactDir = setup.StorageDir + "artifacts"
@@ -18,6 +20,13 @@ var DefaultConnectionURI = "qemu:///system"
 
 // Build executes the end-to-end flow to produce an image for the requested specification.
 func Build(specificationID, imageDir, artifactDir, libvirtConnectionURI string) error {
+	return BuildWithLogger(specificationID, imageDir, artifactDir, libvirtConnectionURI, nil)
+}
+
+// BuildWithLogger executes the end-to-end flow to produce an image for the requested specification using the provided logger.
+func BuildWithLogger(specificationID, imageDir, artifactDir, libvirtConnectionURI string, logger *slog.Logger) error {
+	logger = logging.Ensure(logger).With("component", "config.simple")
+
 	if specificationID == "" {
 		return fmt.Errorf("specification id is required")
 	}
@@ -39,11 +48,14 @@ func Build(specificationID, imageDir, artifactDir, libvirtConnectionURI string) 
 	defer os.RemoveAll(buildDir)
 
 	buildService := services.BuildService{
+		Logger: logger.With("service", "build"),
 		EnvironmentPreparer: &libvirt.LibvirtBuildEnvironmentPreparer{
 			BaseDir:            buildDir,
 			StoragePoolCleaner: libvirt.LibvirtStoragePoolCleaner{},
 		},
-		BuildDriver:                    &libvirt.VirtInstallBuilder{},
+		BuildDriver: &libvirt.VirtInstallBuilder{
+			Logger: logger.With("driver", "virt-install"),
+		},
 		SandboxSpecificationRepository: embeddedrepositories.NewEmbeddedSpecificationRepository(),
 		ImageRepository: &localrepositories.LocalImageRepository{
 			BaseDir: imageDir,
@@ -62,6 +74,13 @@ func Build(specificationID, imageDir, artifactDir, libvirtConnectionURI string) 
 
 // List prints the available specifications and whether an image exists locally.
 func List(imageDir string) error {
+	return ListWithLogger(imageDir, nil)
+}
+
+// ListWithLogger logs the available specifications and whether an image exists locally using the provided logger.
+func ListWithLogger(imageDir string, logger *slog.Logger) error {
+	logger = logging.Ensure(logger).With("component", "config.simple")
+
 	if imageDir == "" {
 		imageDir = "/var/libvirt/mime/images"
 	}
@@ -80,7 +99,7 @@ func List(imageDir string) error {
 			return err
 		}
 
-		fmt.Printf("%s: %t\n", specification.ID, latestImage != nil)
+		logger.Info("specification status", "specification", specification.ID, "image_available", latestImage != nil)
 	}
 
 	return nil

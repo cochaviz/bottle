@@ -1,11 +1,11 @@
 package repositories
 
 import (
-	models "cochaviz/mime/models"
+	models "cochaviz/mime/internal/models"
 )
 
 // SpecficiationRepository manages sandbox specifications.
-type SandboxSpecficiationRepository interface {
+type SandboxSpecficationRepository interface {
 	Get(specID string) (models.SandboxSpecification, error)
 	Save(spec models.SandboxSpecification) (models.SandboxSpecification, error)
 

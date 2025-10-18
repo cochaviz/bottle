@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
-	models "cochaviz/mime/models"
+	models "cochaviz/mime/internal/models"
 )
 
 // LocalImageRepository persists sandbox image metadata in JSON files under BaseDir.

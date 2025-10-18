@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"os"
 	"os/exec"
@@ -239,7 +238,7 @@ func warnForwardModeNone(xmlPath string) bool {
 }
 
 func ensureLabBridge(cfg parsedConfig) error {
-	log.Printf("[*] Waiting for %s to appear…", cfg.LabBridge)
+	getLogger().Info("waiting for lab bridge", "bridge", cfg.LabBridge)
 	var link netlink.Link
 	var err error
 	for i := 0; i < 20; i++ {
@@ -262,7 +261,7 @@ func ensureLabBridge(cfg parsedConfig) error {
 }
 
 func ensureInetBridge(cfg parsedConfig) error {
-	log.Printf("[*] Creating %s…", cfg.InetBridge)
+	getLogger().Info("ensuring inet bridge", "bridge", cfg.InetBridge)
 	link, err := netlink.LinkByName(cfg.InetBridge)
 	if err != nil {
 		if isLinkNotFound(err) {
@@ -290,7 +289,7 @@ func ensureInetBridge(cfg parsedConfig) error {
 }
 
 func ensureNamespace(cfg parsedConfig) error {
-	log.Printf("[*] Netns + veth for INetSim…")
+	getLogger().Info("configuring namespace veth pair", "namespace", cfg.Namespace, "host_link", cfg.VethHost, "ns_link", cfg.VethNamespace)
 	hostHandle, err := netlink.NewHandle()
 	if err != nil {
 		return fmt.Errorf("host netlink handle: %w", err)
@@ -433,14 +432,14 @@ func ensureAddress(link netlink.Link, addr *netlink.Addr) error {
 }
 
 func configureSysctls(ctx context.Context) error {
-	log.Printf("[*] Sysctls…")
+	getLogger().Info("configuring sysctls")
 	if err := writeSysctl("/proc/sys/net/ipv4/ip_forward", "1"); err != nil {
 		return err
 	}
 	if err := writeSysctl("/proc/sys/net/ipv4/conf/all/rp_filter", "2"); err != nil {
 		return err
 	}
-	log.Printf("[*] Enabling bridge-nf")
+	getLogger().Info("enabling bridge netfilter")
 	if err := runCommand(ctx, "modprobe", "br_netfilter"); err != nil {
 		return fmt.Errorf("modprobe br_netfilter: %w", err)
 	}
@@ -463,7 +462,7 @@ func programNftables(ctx context.Context, cfg parsedConfig) error {
 		return err
 	}
 
-	log.Printf("[*] nftables (lab_nat / lab_flt)…")
+	getLogger().Info("programming nftables rules", "tables", []string{"lab_nat", "lab_flt"})
 	if _, err := commandSucceeds(ctx, "nft", "delete", "table", "ip", "lab_nat"); err != nil {
 		return fmt.Errorf("nft delete table ip lab_nat: %w", err)
 	}

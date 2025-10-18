@@ -11,7 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
-	models "cochaviz/mime/models"
+	models "cochaviz/mime/internal/models"
 )
 
 // LocalArtifactStore persists artifacts and metadata on disk under BaseDir.

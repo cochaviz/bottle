@@ -3,7 +3,6 @@ package setup
 import (
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 )
@@ -25,7 +24,7 @@ func Verify() error {
 }
 
 func ClearConfig() error {
-	log.Println("Clearing configuration files...")
+	getLogger().Info("clearing configuration files")
 
 	for _, file := range configFiles {
 		if err := os.Remove(file); err != nil && !errors.Is(err, os.ErrNotExist) {

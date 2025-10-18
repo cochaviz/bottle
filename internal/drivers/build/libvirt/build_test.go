@@ -8,8 +8,8 @@ import (
 	"runtime"
 	"testing"
 
-	"cochaviz/mime/drivers/build"
-	"cochaviz/mime/models"
+	"cochaviz/mime/internal/drivers/build"
+	"cochaviz/mime/internal/models"
 )
 
 func TestDeriveConfigPopulatesFields(t *testing.T) {

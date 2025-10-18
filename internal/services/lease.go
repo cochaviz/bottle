@@ -1,7 +1,7 @@
 package services
 
 import (
-	"cochaviz/mime/models"
+	"cochaviz/mime/internal/models"
 )
 
 // LeaseService provides methods for managing leases.

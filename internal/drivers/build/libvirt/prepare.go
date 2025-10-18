@@ -7,8 +7,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"cochaviz/mime/drivers/build"
-	"cochaviz/mime/models"
+	"cochaviz/mime/internal/drivers/build"
+	"cochaviz/mime/internal/models"
 
 	libvirt "libvirt.org/go/libvirt"
 )

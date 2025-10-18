@@ -4,15 +4,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 
-	"cochaviz/mime/drivers/build"
-	"cochaviz/mime/models"
+	"cochaviz/mime/internal/drivers/build"
+	"cochaviz/mime/internal/models"
 
 	libvirt "libvirt.org/go/libvirt"
 )
@@ -54,7 +54,16 @@ type BuildConfig struct {
 }
 
 // VirtInstallBuilder provisions Debian-based images via virt-install.
-type VirtInstallBuilder struct{}
+type VirtInstallBuilder struct {
+	Logger *slog.Logger
+}
+
+func (b *VirtInstallBuilder) logger() *slog.Logger {
+	if b != nil && b.Logger != nil {
+		return b.Logger
+	}
+	return slog.Default()
+}
 
 // Build runs the virt-install workflow using libvirt.
 func (b *VirtInstallBuilder) Build(ctx models.BuildContext, env build.BuildEnvironment) (models.BuildOutput, error) {
@@ -73,10 +82,17 @@ func (b *VirtInstallBuilder) Build(ctx models.BuildContext, env build.BuildEnvir
 		return models.BuildOutput{}, err
 	}
 
-	log.Printf("Building sandbox image for %s/%s", config.Release, config.Arch)
-	log.Printf("Installer kernel: %s", config.KernelURL)
-	log.Printf("Installer initrd: %s", config.InitrdURL)
-	log.Printf("Output image path: %s", config.OutputPath)
+	logger := b.logger().With(
+		"specification", ctx.Spec.ID,
+		"release", config.Release,
+		"arch", config.Arch,
+	)
+	logger.Info("starting virt-install build",
+		"kernel_url", config.KernelURL,
+		"initrd_url", config.InitrdURL,
+		"output_path", config.OutputPath,
+		"connect_uri", config.ConnectURI,
+	)
 
 	conn, err := libvirt.NewConnect(config.ConnectURI)
 	if err != nil {
@@ -84,12 +100,20 @@ func (b *VirtInstallBuilder) Build(ctx models.BuildContext, env build.BuildEnvir
 	}
 	defer conn.Close()
 
-	if err := ensureNetwork(conn, config.NetworkName, config.NetworkConfigurationPath); err != nil {
+	if err := b.ensureNetwork(logger, conn, config.NetworkName, config.NetworkConfigurationPath); err != nil {
 		return models.BuildOutput{}, err
 	}
 
-	command := buildCommand(config, kernelArgs)
-	log.Printf("Running virt-install command: %s", strings.Join(command, " "))
+	command, requiresEmulation := buildCommand(config, kernelArgs)
+	if requiresEmulation {
+		logger.Warn("using QEMU software emulation",
+			"host_arch", config.HostArch,
+			"requested_arch", config.Arch,
+		)
+	}
+	logger.Info("running virt-install",
+		"command", strings.Join(command, " "),
+	)
 	if err := runCommand(command); err != nil {
 		return models.BuildOutput{}, err
 	}
@@ -264,7 +288,7 @@ func buildKernelArgs(cfg *BuildConfig) ([]string, error) {
 }
 
 // ensureNetwork ensures that the specified network exists and is active.
-func ensureNetwork(conn *libvirt.Connect, name string, xmlPath *string) error {
+func (b *VirtInstallBuilder) ensureNetwork(logger *slog.Logger, conn *libvirt.Connect, name string, xmlPath *string) error {
 	network, err := conn.LookupNetworkByName(name)
 	if err != nil {
 		if xmlPath == nil || *xmlPath == "" {
@@ -280,7 +304,7 @@ func ensureNetwork(conn *libvirt.Connect, name string, xmlPath *string) error {
 		if err != nil {
 			return fmt.Errorf("define network: %w", err)
 		}
-		log.Printf("Defined libvirt network %q", name)
+		logger.Info("defined libvirt network", "network", name)
 	}
 
 	defer network.Free()
@@ -299,18 +323,18 @@ func ensureNetwork(conn *libvirt.Connect, name string, xmlPath *string) error {
 		if err := network.Create(); err != nil {
 			return fmt.Errorf("start network: %w", err)
 		}
-		log.Printf("Started libvirt network %q", name)
+		logger.Info("started libvirt network", "network", name)
 	}
 
 	if err := network.SetAutostart(true); err != nil {
-		log.Printf("Warning: unable to set autostart on network %q: %v", name, err)
+		logger.Warn("unable to set network autostart", "network", name, "error", err)
 	}
 
 	return nil
 }
 
 // buildCommand builds the command line arguments for virt-install.
-func buildCommand(cfg *BuildConfig, kernelArgs []string) []string {
+func buildCommand(cfg *BuildConfig, kernelArgs []string) ([]string, bool) {
 	diskSegment := fmt.Sprintf("path=%s,format=%s,size=%d", cfg.OutputPath, cfg.DiskFormat, cfg.DiskSizeGB)
 	cmd := []string{
 		"virt-install",
@@ -343,12 +367,13 @@ func buildCommand(cfg *BuildConfig, kernelArgs []string) []string {
 		cmd = append(cmd, "--noautoconsole")
 	}
 
+	requireEmulation := false
 	if cfg.HostArch == "" || cfg.HostArch != cfg.Arch {
-		log.Printf("Using QEMU software emulation for %s build on %s host", cfg.Arch, cfg.HostArch)
+		requireEmulation = true
 		cmd = append(cmd, "--virt-type", "qemu")
 	}
 
-	return cmd
+	return cmd, requireEmulation
 }
 
 // runCommand runs the virt-install command with the provided arguments.

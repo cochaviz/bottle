@@ -1,7 +1,7 @@
 package simple
 
 import (
-	"cochaviz/mime/repositories/embedded"
+	"cochaviz/mime/internal/repositories/embedded"
 	"os"
 	"testing"
 )

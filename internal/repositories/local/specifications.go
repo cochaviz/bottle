@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	models "cochaviz/mime/models"
+	models "cochaviz/mime/internal/models"
 )
 
 // Repository using JSON files stored on disk for sandbox specifications.
