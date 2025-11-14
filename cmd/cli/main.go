@@ -23,6 +23,7 @@ func main() {
 
 	root := newRootCommand(logger, &levelVar)
 	if err := root.Execute(); err != nil {
+		logger.Error("command execution failed", "error", err)
 		os.Exit(1)
 	}
 }
@@ -56,11 +57,14 @@ func newRootCommand(logger *slog.Logger, levelVar *slog.LevelVar) *cobra.Command
 }
 
 func verifySetup(logger *slog.Logger) error {
+	logger = logger.With("action", "verify_setup")
+	logger.Info("verifying setup state")
 	if err := setup.Verify(); err != nil {
 		logger.Error("setup verification failed", "error", err)
 		logger.Info("run 'mime setup' to initialize the configuration")
 		return err
 	}
+	logger.Info("setup verification succeeded")
 	return nil
 }
 
@@ -75,14 +79,25 @@ func newBuildCommand(logger *slog.Logger) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "build",
 		Short: "Build a sandbox image for the specified specification",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cmdLogger := logger.With("command", "build", "specification", specID)
+			selectedSpec := specID
+			if selectedSpec == "" && len(args) > 0 {
+				selectedSpec = args[0]
+			}
+			if selectedSpec == "" {
+				return fmt.Errorf("specification is required; provide --spec or a positional argument")
+			}
+
+			cmdLogger := logger.With("command", "build", "specification", selectedSpec)
 
 			if err := verifySetup(cmdLogger); err != nil {
 				return err
 			}
 
-			if err := config.BuildWithLogger(specID, imageDir, artifactDir, connectionURI, cmdLogger); err != nil {
+			cmdLogger.Info("starting build", "image_dir", imageDir, "artifact_dir", artifactDir, "connect_uri", connectionURI)
+
+			if err := config.BuildWithLogger(selectedSpec, imageDir, artifactDir, connectionURI, cmdLogger); err != nil {
 				cmdLogger.Error("build failed", "error", err)
 				return err
 			}
@@ -96,8 +111,6 @@ func newBuildCommand(logger *slog.Logger) *cobra.Command {
 	cmd.Flags().StringVar(&imageDir, "image-dir", config.DefaultImageDir, "Directory where images will be stored")
 	cmd.Flags().StringVar(&artifactDir, "artifact-dir", config.DefaultArtifactDir, "Directory to store build artifacts")
 	cmd.Flags().StringVar(&connectionURI, "connect-uri", config.DefaultConnectionURI, "Libvirt connection URI")
-
-	cmd.MarkFlagRequired("spec")
 
 	return cmd
 }
@@ -115,16 +128,24 @@ func newListCommand(logger *slog.Logger) *cobra.Command {
 				return err
 			}
 
+			cmdLogger.Info("listing specifications", "image_dir", imageDir)
+
 			specs, built, err := config.List(imageDir)
 			if err != nil {
 				cmdLogger.Error("listing specifications failed", "error", err)
 				return err
 			}
 
+			if len(specs) == 0 {
+				cmdLogger.Warn("no specifications available", "image_dir", imageDir)
+				return nil
+			}
+
 			for i, spec := range specs {
 				fmt.Printf("%s\t(built: %t)\n", spec, built[i])
 			}
 
+			cmdLogger.Info("listed specifications", "count", len(specs))
 			return nil
 		},
 	}
@@ -149,10 +170,12 @@ func newSetupCommand(logger *slog.Logger) *cobra.Command {
 			}
 
 			if clearConfig {
+				cmdLogger.Info("clearing existing configuration")
 				if err := setup.ClearConfig(); err != nil {
 					cmdLogger.Error("clear configuration failed", "error", err)
 					return fmt.Errorf("clear configuration: %w", err)
 				}
+				cmdLogger.Info("existing configuration cleared")
 			}
 
 			if err := setup.SetupNetwork(context.Background()); err != nil {
