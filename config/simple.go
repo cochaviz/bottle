@@ -53,6 +53,7 @@ func BuildWithLogger(specificationID, imageDir, artifactDir, libvirtConnectionUR
 		Logger: logger.With("service", "build"),
 		EnvironmentPreparer: &libvirt.LibvirtBuildEnvironmentPreparer{
 			BaseDir:            buildDir,
+			ConnectionURI:      libvirtConnectionURI,
 			StoragePoolCleaner: libvirt.LibvirtStoragePoolCleaner{},
 		},
 		BuildDriver: &libvirt.VirtInstallBuilder{

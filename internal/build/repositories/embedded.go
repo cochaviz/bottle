@@ -342,9 +342,15 @@ func makeSpec(
 			"network_configuration": buildNetworkContent,
 		},
 		Profile: build.BuildProfile{
-			Console:   console,
-			KernelURL: kernelURL,
-			InitrdURL: initrdURL,
+			Console:        console,
+			KernelURL:      kernelURL,
+			InitrdURL:      initrdURL,
+			Release:        defaultRelease,
+			DiskSizeGB:     defaultDiskSize,
+			PreseedEnabled: true,
+			MirrorHost:     debianMirror,
+			MirrorPath:     debianMirrorPath,
+			NetworkName:    defaultNetwork,
 		},
 	}
 }
