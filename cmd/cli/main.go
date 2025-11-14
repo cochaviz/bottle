@@ -9,7 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	simple "cochaviz/mime/internal/configurations"
+	config "cochaviz/mime/config"
 	"cochaviz/mime/internal/logging"
 	"cochaviz/mime/internal/setup"
 )
@@ -82,7 +82,7 @@ func newBuildCommand(logger *slog.Logger) *cobra.Command {
 				return err
 			}
 
-			if err := simple.BuildWithLogger(specID, imageDir, artifactDir, connectionURI, cmdLogger); err != nil {
+			if err := config.BuildWithLogger(specID, imageDir, artifactDir, connectionURI, cmdLogger); err != nil {
 				cmdLogger.Error("build failed", "error", err)
 				return err
 			}
@@ -93,9 +93,9 @@ func newBuildCommand(logger *slog.Logger) *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&specID, "spec", "", "Specification identifier to build")
-	cmd.Flags().StringVar(&imageDir, "image-dir", simple.DefaultImageDir, "Directory where images will be stored")
-	cmd.Flags().StringVar(&artifactDir, "artifact-dir", simple.DefaultArtifactDir, "Directory to store build artifacts")
-	cmd.Flags().StringVar(&connectionURI, "connect-uri", simple.DefaultConnectionURI, "Libvirt connection URI")
+	cmd.Flags().StringVar(&imageDir, "image-dir", config.DefaultImageDir, "Directory where images will be stored")
+	cmd.Flags().StringVar(&artifactDir, "artifact-dir", config.DefaultArtifactDir, "Directory to store build artifacts")
+	cmd.Flags().StringVar(&connectionURI, "connect-uri", config.DefaultConnectionURI, "Libvirt connection URI")
 
 	cmd.MarkFlagRequired("spec")
 
@@ -115,7 +115,7 @@ func newListCommand(logger *slog.Logger) *cobra.Command {
 				return err
 			}
 
-			specs, built, err := simple.List(imageDir)
+			specs, built, err := config.List(imageDir)
 			if err != nil {
 				cmdLogger.Error("listing specifications failed", "error", err)
 				return err
@@ -129,7 +129,7 @@ func newListCommand(logger *slog.Logger) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&imageDir, "image-dir", simple.DefaultImageDir, "Directory where images are stored")
+	cmd.Flags().StringVar(&imageDir, "image-dir", config.DefaultImageDir, "Directory where images are stored")
 
 	return cmd
 }
