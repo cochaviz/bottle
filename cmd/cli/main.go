@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/spf13/cobra"
 
@@ -21,8 +24,15 @@ func main() {
 	logger := logging.NewCLI(os.Stderr, &levelVar)
 	slog.SetDefault(logger)
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	root := newRootCommand(logger, &levelVar)
-	if err := root.Execute(); err != nil {
+	if err := root.ExecuteContext(ctx); err != nil {
+		if errors.Is(err, context.Canceled) {
+			logger.Warn("command interrupted", "error", err)
+			os.Exit(130)
+		}
 		logger.Error("command execution failed", "error", err)
 		os.Exit(1)
 	}
@@ -81,6 +91,10 @@ func newBuildCommand(logger *slog.Logger) *cobra.Command {
 		Short: "Build a sandbox image for the specified specification",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+			if ctx == nil {
+				ctx = context.Background()
+			}
 			selectedSpec := specID
 			if selectedSpec == "" && len(args) > 0 {
 				selectedSpec = args[0]
@@ -97,7 +111,11 @@ func newBuildCommand(logger *slog.Logger) *cobra.Command {
 
 			cmdLogger.Info("starting build", "image_dir", imageDir, "artifact_dir", artifactDir, "connect_uri", connectionURI)
 
-			if err := config.BuildWithLogger(selectedSpec, imageDir, artifactDir, connectionURI, cmdLogger); err != nil {
+			if err := config.BuildWithLogger(ctx, selectedSpec, imageDir, artifactDir, connectionURI, cmdLogger); err != nil {
+				if errors.Is(err, context.Canceled) {
+					cmdLogger.Warn("build interrupted")
+					return err
+				}
 				cmdLogger.Error("build failed", "error", err)
 				return err
 			}

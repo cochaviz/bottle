@@ -1,6 +1,7 @@
 package simple
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -20,11 +21,21 @@ var DefaultConnectionURI = "qemu:///system"
 
 // Build executes the end-to-end flow to produce an image for the requested specification.
 func Build(specificationID, imageDir, artifactDir, libvirtConnectionURI string) error {
-	return BuildWithLogger(specificationID, imageDir, artifactDir, libvirtConnectionURI, nil)
+	return BuildWithLogger(context.Background(), specificationID, imageDir, artifactDir, libvirtConnectionURI, nil)
 }
 
 // BuildWithLogger executes the end-to-end flow to produce an image for the requested specification using the provided logger.
-func BuildWithLogger(specificationID, imageDir, artifactDir, libvirtConnectionURI string, logger *slog.Logger) error {
+func BuildWithLogger(
+	ctx context.Context,
+	specificationID,
+	imageDir,
+	artifactDir,
+	libvirtConnectionURI string,
+	logger *slog.Logger,
+) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	logger = logging.Ensure(logger).With("component", "config.simple")
 
 	specificationRepository := buildspecs.NewEmbeddedSpecificationRepository()
@@ -68,7 +79,7 @@ func BuildWithLogger(specificationID, imageDir, artifactDir, libvirtConnectionUR
 		},
 	}
 
-	if err := buildService.Run(&build.BuildRequest{SpecificationID: specificationID}); err != nil {
+	if err := buildService.Run(ctx, &build.BuildRequest{SpecificationID: specificationID}); err != nil {
 		return err
 	}
 

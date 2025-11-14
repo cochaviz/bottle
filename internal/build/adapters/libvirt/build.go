@@ -1,6 +1,7 @@
 package libvirt
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -48,6 +49,7 @@ type BuildConfig struct {
 	OutputDir  string `json:"output_dir"`
 	OutputPath string `json:"output_path"`
 	HostArch   string `json:"host_arch"`
+	DomainName string `json:"domain_name"`
 
 	PreseedPath              *string `json:"preseed_path"`
 	NetworkConfigurationPath *string `json:"network_configuration_path"`
@@ -66,13 +68,16 @@ func (b *VirtInstallBuilder) logger() *slog.Logger {
 }
 
 // Build runs the virt-install workflow using libvirt.
-func (b *VirtInstallBuilder) Build(ctx build.BuildContext, env build.BuildEnvironment) (build.BuildOutput, error) {
+func (b *VirtInstallBuilder) Build(ctx context.Context, buildCtx build.BuildContext, env build.BuildEnvironment) (build.BuildOutput, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	libvirtEnv, ok := env.(*LibvirtBuildEnvironment)
 	if !ok {
 		return build.BuildOutput{}, &build.BuildError{Message: "invalid environment type: expected *LibvirtBuildEnvironment"}
 	}
 
-	config, err := deriveConfig(ctx, *libvirtEnv)
+	config, err := deriveConfig(buildCtx, *libvirtEnv)
 	if err != nil {
 		return build.BuildOutput{}, err
 	}
@@ -83,9 +88,10 @@ func (b *VirtInstallBuilder) Build(ctx build.BuildContext, env build.BuildEnviro
 	}
 
 	logger := b.logger().With(
-		"specification", ctx.Spec.SandboxSpecification.ID,
+		"specification", buildCtx.Spec.SandboxSpecification.ID,
 		"release", config.Release,
 		"arch", config.Arch,
+		"domain", config.DomainName,
 	)
 	logger.Info("starting virt-install build",
 		"kernel_url", config.KernelURL,
@@ -104,6 +110,10 @@ func (b *VirtInstallBuilder) Build(ctx build.BuildContext, env build.BuildEnviro
 		return build.BuildOutput{}, err
 	}
 
+	cancelWatcher := make(chan struct{})
+	go b.watchCancellation(ctx, cancelWatcher, logger, conn, config.DomainName)
+	defer close(cancelWatcher)
+
 	command, requiresEmulation := buildCommand(config, kernelArgs)
 	if requiresEmulation {
 		logger.Warn("using QEMU software emulation",
@@ -114,8 +124,15 @@ func (b *VirtInstallBuilder) Build(ctx build.BuildContext, env build.BuildEnviro
 	logger.Info("running virt-install",
 		"command", strings.Join(command, " "),
 	)
-	if err := runCommand(command); err != nil {
+	if err := runCommand(ctx, command); err != nil {
+		if cleanupErr := b.cleanupDomain(logger, conn, config.DomainName); cleanupErr != nil {
+			logger.Warn("domain cleanup after failure encountered errors", "error", cleanupErr)
+		}
 		return build.BuildOutput{}, err
+	}
+
+	if err := b.cleanupDomain(logger, conn, config.DomainName); err != nil {
+		logger.Warn("domain cleanup after build encountered errors", "error", err)
 	}
 
 	buildArtifacts := []artifacts.Artifact{}
@@ -191,6 +208,10 @@ func deriveConfig(ctx build.BuildContext, env LibvirtBuildEnvironment) (*BuildCo
 
 	if err := config.resolvePaths(); err != nil {
 		return nil, err
+	}
+
+	if config.DomainName == "" {
+		config.DomainName = fmt.Sprintf("sandbox-builder-%s-%s", config.Release, config.Arch)
 	}
 
 	return config, nil
@@ -338,10 +359,15 @@ func (b *VirtInstallBuilder) ensureNetwork(logger *slog.Logger, conn *libvirt.Co
 // buildCommand builds the command line arguments for virt-install.
 func buildCommand(cfg *BuildConfig, kernelArgs []string) ([]string, bool) {
 	diskSegment := fmt.Sprintf("path=%s,format=%s,size=%d", cfg.OutputPath, cfg.DiskFormat, cfg.DiskSizeGB)
+	domainName := cfg.DomainName
+	if domainName == "" {
+		domainName = fmt.Sprintf("sandbox-builder-%s-%s", cfg.Release, cfg.Arch)
+	}
+
 	cmd := []string{
 		"virt-install",
 		"--connect", cfg.ConnectURI,
-		"--name", fmt.Sprintf("sandbox-builder-%s-%s", cfg.Release, cfg.Arch),
+		"--name", domainName,
 		"--memory", fmt.Sprintf("%d", cfg.RAMMB),
 		"--vcpus", fmt.Sprintf("%d", cfg.VCPUs),
 		"--disk", diskSegment,
@@ -379,20 +405,89 @@ func buildCommand(cfg *BuildConfig, kernelArgs []string) ([]string, bool) {
 }
 
 // runCommand runs the virt-install command with the provided arguments.
-func runCommand(args []string) error {
+func runCommand(ctx context.Context, args []string) error {
 	if len(args) == 0 {
 		return &build.BuildError{Message: "no command provided"}
 	}
 
-	cmd := exec.Command(args[0], args[1:]...)
+	if ctx == nil {
+		return &build.BuildError{Message: "context is nil in runCommand (should be passed as argument)"}
+	}
+
+	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Run(); err != nil {
+		if errors.Is(ctx.Err(), context.Canceled) {
+			return context.Canceled
+		}
+		if errors.Is(err, context.Canceled) {
+			return context.Canceled
+		}
 		return &build.BuildError{Message: fmt.Sprintf("virt-install failed: %v", err)}
 	}
 
 	return nil
+}
+
+func (b *VirtInstallBuilder) watchCancellation(ctx context.Context, done <-chan struct{}, logger *slog.Logger, conn *libvirt.Connect, domain string) {
+	if ctx == nil {
+		return
+	}
+	select {
+	case <-ctx.Done():
+		logger.Warn("cancellation received; attempting to destroy domain", "domain", domain)
+		if err := b.cleanupDomain(logger, conn, domain); err != nil {
+			logger.Error("failed to cleanup domain after cancellation", "domain", domain, "error", err)
+		}
+	case <-done:
+	}
+}
+
+func (b *VirtInstallBuilder) cleanupDomain(logger *slog.Logger, conn *libvirt.Connect, domain string) error {
+	if conn == nil || domain == "" {
+		return nil
+	}
+	dom, err := conn.LookupDomainByName(domain)
+	if err != nil {
+		if isLibvirtNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	defer dom.Free()
+
+	active, err := dom.IsActive()
+	if err == nil && active {
+		if destroyErr := dom.Destroy(); destroyErr != nil && !isLibvirtNotFound(destroyErr) {
+			return destroyErr
+		}
+	}
+
+	if undefErr := dom.UndefineFlags(
+		libvirt.DOMAIN_UNDEFINE_MANAGED_SAVE |
+			libvirt.DOMAIN_UNDEFINE_SNAPSHOTS_METADATA |
+			libvirt.DOMAIN_UNDEFINE_NVRAM,
+	); undefErr != nil && !isLibvirtNotFound(undefErr) {
+		return undefErr
+	}
+
+	logger.Info("destroyed libvirt domain", "domain", domain)
+	return nil
+}
+
+func isLibvirtNotFound(err error) bool {
+	var virErr libvirt.Error
+	if !errors.As(err, &virErr) {
+		return false
+	}
+	switch virErr.Code {
+	case libvirt.ERR_NO_DOMAIN, libvirt.ERR_NO_NETWORK, libvirt.ERR_NO_STORAGE_VOL:
+		return true
+	default:
+		return false
+	}
 }
 
 // osVariant returns the appropriate OS variant for the given release.
