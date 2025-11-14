@@ -11,7 +11,6 @@ import (
 	buildspecs "cochaviz/mime/internal/build/repositories"
 	"cochaviz/mime/internal/logging"
 	"cochaviz/mime/internal/sandbox/repositories/images"
-	sandboxspecs "cochaviz/mime/internal/sandbox/repositories/specifications"
 	"cochaviz/mime/internal/setup"
 )
 
@@ -82,7 +81,7 @@ func List(imageDir string) ([]string, []bool, error) {
 	}
 
 	imageRepository := &images.LocalImageRepository{BaseDir: imageDir}
-	specificationRepository := sandboxspecs.LocalSandboxSpecificationRepository{}
+	specificationRepository := buildspecs.NewEmbeddedSpecificationRepository()
 
 	specifications, err := specificationRepository.ListAll()
 
