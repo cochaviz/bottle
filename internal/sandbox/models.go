@@ -59,22 +59,13 @@ type SandboxSpecification struct {
 // SandboxImage is a record describing a built sandbox image.
 type SandboxImage struct {
 	ID            string
-	Specification SandboxSpecification
-	Image         artifacts.Artifact // Artifact representing the built sandbox image.
+	ImageArtifact artifacts.Artifact // Artifact representing the built sandbox image.
 	CreatedAt     time.Time
 
-	Metadata           map[string]any
-	CompanionArtifacts []artifacts.Artifact // Artifacts beside the image produced during the build process and necessary for the sandbox to function.
-}
+	ReferenceSpecification SandboxSpecification // Specification used during the build process.
+	CompanionArtifacts     []artifacts.Artifact // Artifacts beside the image produced during the build process and necessary for the sandbox to function.
 
-// StaticAnalysis represents the static analysis of a system.
-type StaticAnalysis struct {
-	// ...
-}
-
-// DynamicAnalysis represents the dynamic analysis of a system.
-type DynamicAnalysis struct {
-	// ...
+	Metadata map[string]any
 }
 
 type Sample struct {
@@ -83,23 +74,35 @@ type Sample struct {
 	Artifact string
 }
 
-type SandboxLeaseState = string
+type SandboxState = string
+
+const (
+	SandboxPending SandboxState = "pending"
+	SandboxRunning SandboxState = "running"
+	SandboxPaused  SandboxState = "paused"
+	SandboxStale   SandboxState = "stale"
+	SandboxStopped SandboxState = "stopped"
+)
 
 type SandboxLeaseSpecification struct {
-	SandboxSpecification SandboxSpecification
-	SandboxImage         SandboxImage
+	DomainName string // Domain name for the sandbox.
 
-	ttl time.Duration // Duration for which the lease is valid.
+	SampleDir string // Directory containing sample files to be mounted into the sandbox.
+	SetupDir  string // Directory containing setup scripts to be executed after the sandbox is booted (e.g. DHCP configuration).
+
+	SandboxImage          SandboxImage
+	OverrideSpecification *SandboxSpecification // Specification used to override the image's specification (if provided)
 }
 
 type SandboxLease struct {
-	ID        int64
+	ID        string
 	StartTime time.Time
 	EndTime   time.Time
 
 	Specification SandboxLeaseSpecification
-	State         SandboxLeaseState
+	SandboxState  SandboxState
 
+	RunDir        string
 	RuntimeConfig map[string]any
 	Metadata      map[string]any
 }

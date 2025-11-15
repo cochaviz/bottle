@@ -64,7 +64,7 @@ func (rep *LocalImageRepository) LatestForSpec(specID string) (*sandbox.SandboxI
 			continue
 		}
 
-		if image.Specification.ID != specID {
+		if image.ReferenceSpecification.ID != specID {
 			continue
 		}
 

@@ -21,10 +21,10 @@ type LeaseMetrics struct {
 // hypervisor-specific details.
 type SandboxDriver interface {
 	Acquire(spec SandboxLeaseSpecification) (SandboxLease, error)
-	Attach(lease SandboxLease) (SandboxLease, error)
+	// Attach(lease SandboxLease) (SandboxLease, error) // we don't run interactively so we don't need this
 	Pause(lease SandboxLease, reason string) (SandboxLease, error)
 	Resume(lease SandboxLease) (SandboxLease, error)
-	Snapshot(lease SandboxLease, label string) (SnapshotHandle, error)
+	// Snapshot(lease SandboxLease, label string) (SnapshotHandle, error) // currently, we stream network data so we don't support snapshots now
 	Destroy(lease SandboxLease, force bool) error
 	CollectMetrics(lease SandboxLease) (LeaseMetrics, error)
 }

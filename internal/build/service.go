@@ -84,12 +84,12 @@ func (s *BuildService) Run(request *BuildRequest) error {
 	}
 
 	image := sandbox.SandboxImage{
-		ID:                 uuid.New().String(),
-		Specification:      requestedSpec.SandboxSpecification,
-		Image:              imageArtifact,
-		CreatedAt:          time.Now(),
-		Metadata:           map[string]any{},
-		CompanionArtifacts: companionArtifacts,
+		ID:                     uuid.New().String(),
+		ReferenceSpecification: requestedSpec.SandboxSpecification,
+		ImageArtifact:          imageArtifact,
+		CreatedAt:              time.Now(),
+		Metadata:               map[string]any{},
+		CompanionArtifacts:     companionArtifacts,
 	}
 
 	if err := s.ImageRepository.Save(image); err != nil {
