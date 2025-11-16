@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 
 	"cochaviz/mime/internal/artifacts"
 	"cochaviz/mime/internal/build"
@@ -14,8 +15,9 @@ import (
 	"cochaviz/mime/internal/setup"
 )
 
-var DefaultArtifactDir = setup.StorageDir + "artifacts"
-var DefaultImageDir = setup.StorageDir + "images"
+var DefaultArtifactDir = filepath.Join(setup.StorageDir, "artifacts")
+var DefaultImageDir = filepath.Join(setup.StorageDir, "images")
+var DefaultBuildRoot = filepath.Join(setup.StorageDir, "builds")
 var DefaultConnectionURI = "qemu:///system"
 
 // Build executes the end-to-end flow to produce an image for the requested specification.
@@ -33,7 +35,7 @@ func BuildWithLogger(specificationID, imageDir, artifactDir, libvirtConnectionUR
 		return fmt.Errorf("specification id is required")
 	}
 	if imageDir == "" {
-		imageDir = DefaultArtifactDir
+		imageDir = DefaultImageDir
 	}
 	if artifactDir == "" {
 		artifactDir = DefaultArtifactDir
@@ -43,7 +45,12 @@ func BuildWithLogger(specificationID, imageDir, artifactDir, libvirtConnectionUR
 		libvirtConnectionURI = DefaultConnectionURI
 	}
 
-	buildDir, err := os.MkdirTemp("", "mime-build-*")
+	buildRoot := DefaultBuildRoot
+	if err := os.MkdirAll(buildRoot, 0o755); err != nil {
+		return fmt.Errorf("create build root %s: %w", buildRoot, err)
+	}
+
+	buildDir, err := os.MkdirTemp(buildRoot, "mime-build-*")
 	if err != nil {
 		return fmt.Errorf("create build directory: %w", err)
 	}
@@ -78,7 +85,7 @@ func BuildWithLogger(specificationID, imageDir, artifactDir, libvirtConnectionUR
 // List prints the available specifications and whether an image exists locally.
 func List(imageDir string) ([]string, []bool, error) {
 	if imageDir == "" {
-		imageDir = "/var/libvirt/mime/images"
+		imageDir = DefaultImageDir
 	}
 
 	imageRepository := &images.LocalImageRepository{BaseDir: imageDir}

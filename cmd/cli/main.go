@@ -88,26 +88,22 @@ func newSandboxCommand(logger *slog.Logger) *cobra.Command {
 
 func newSandboxBuildCommand(logger *slog.Logger) *cobra.Command {
 	var (
-		specID        string
 		imageDir      string
 		artifactDir   string
 		connectionURI string
 	)
 
 	cmd := &cobra.Command{
-		Use:   "build",
+		Use:   "build <spec-id>",
+		Args:  cobra.ExactArgs(1),
 		Short: "Build a sandbox image for the specified specification",
-		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			selectedSpec := specID
-			if selectedSpec == "" && len(args) > 0 {
-				selectedSpec = args[0]
-			}
-			if selectedSpec == "" {
-				return fmt.Errorf("specification is required; provide --spec or a positional argument")
+			specID := strings.TrimSpace(args[0])
+			if specID == "" {
+				return fmt.Errorf("specification is required")
 			}
 
-			cmdLogger := logger.With("command", "sandbox.build", "specification", selectedSpec)
+			cmdLogger := logger.With("command", "sandbox.build", "specification", specID)
 
 			if err := verifySetup(cmdLogger); err != nil {
 				return err
@@ -115,7 +111,7 @@ func newSandboxBuildCommand(logger *slog.Logger) *cobra.Command {
 
 			cmdLogger.Info("starting build", "image_dir", imageDir, "artifact_dir", artifactDir, "connect_uri", connectionURI)
 
-			if err := config.BuildWithLogger(selectedSpec, imageDir, artifactDir, connectionURI, cmdLogger); err != nil {
+			if err := config.BuildWithLogger(specID, imageDir, artifactDir, connectionURI, cmdLogger); err != nil {
 				cmdLogger.Error("build failed", "error", err)
 				return err
 			}
@@ -125,7 +121,6 @@ func newSandboxBuildCommand(logger *slog.Logger) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&specID, "spec", "", "Specification identifier to build")
 	cmd.Flags().StringVar(&imageDir, "image-dir", config.DefaultImageDir, "Directory where images will be stored")
 	cmd.Flags().StringVar(&artifactDir, "artifact-dir", config.DefaultArtifactDir, "Directory to store build artifacts")
 	cmd.Flags().StringVar(&connectionURI, "connect-uri", config.DefaultConnectionURI, "Libvirt connection URI")
@@ -135,7 +130,6 @@ func newSandboxBuildCommand(logger *slog.Logger) *cobra.Command {
 
 func newSandboxRunCommand(logger *slog.Logger) *cobra.Command {
 	var (
-		specID        string
 		imageDir      string
 		runDir        string
 		connectionURI string
@@ -143,11 +137,13 @@ func newSandboxRunCommand(logger *slog.Logger) *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "run",
+		Use:   "run <spec-id>",
+		Args:  cobra.ExactArgs(1),
 		Short: "Acquire and start a sandbox for the specified specification",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			specID := strings.TrimSpace(args[0])
 			if specID == "" {
-				return fmt.Errorf("specification is required; provide --spec")
+				return fmt.Errorf("specification is required")
 			}
 
 			cmdLogger := logger.With("command", "sandbox.run", "specification", specID)
@@ -200,7 +196,6 @@ func newSandboxRunCommand(logger *slog.Logger) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&specID, "spec", "", "Specification identifier to run")
 	cmd.Flags().StringVar(&imageDir, "image-dir", config.DefaultImageDir, "Directory where images are stored")
 	cmd.Flags().StringVar(&runDir, "run-dir", setup.StorageDir+"leases", "Directory to store sandbox run state")
 	cmd.Flags().StringVar(&connectionURI, "connect-uri", config.DefaultConnectionURI, "Libvirt connection URI")
