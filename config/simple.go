@@ -6,7 +6,9 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"cochaviz/mime/internal/analysis"
 	"cochaviz/mime/internal/artifacts"
 	"cochaviz/mime/internal/build"
 	"cochaviz/mime/internal/build/adapters/libvirt"
@@ -15,12 +17,15 @@ import (
 	"cochaviz/mime/internal/sandbox"
 	"cochaviz/mime/internal/sandbox/repositories/images"
 	"cochaviz/mime/internal/setup"
+
+	"github.com/google/uuid"
 )
 
 var DefaultArtifactDir = filepath.Join(setup.StorageDir, "artifacts")
 var DefaultImageDir = filepath.Join(setup.StorageDir, "images")
 var DefaultBuildRoot = filepath.Join(setup.StorageDir, "builds")
 var DefaultRunDir = filepath.Join(setup.StorageDir, "leases")
+var DefaultSpecificationDir = filepath.Join(setup.StorageDir, "specifications")
 var DefaultConnectionURI = "qemu:///system"
 
 // Build executes the end-to-end flow to produce an image for the requested specification.
@@ -170,4 +175,74 @@ func RunSandbox(
 	logger.Info("sandbox lease acquired", "lease_id", lease.ID)
 
 	return worker.Run(ctx)
+}
+
+// RunAnalysis executes the analysis workflow for the provided sample file.
+func RunAnalysis(
+	ctx context.Context,
+	samplePath string,
+	c2Address string,
+	imageDir string,
+	runDir string,
+	libvirtConnectionURI string,
+	sampleArgs []string,
+	logger *slog.Logger,
+) error {
+	logger = logging.Ensure(logger).With("component", "config.simple", "operation", "analysis")
+
+	if strings.TrimSpace(samplePath) == "" {
+		return fmt.Errorf("sample path is required")
+	}
+
+	info, err := os.Stat(samplePath)
+	if err != nil {
+		return fmt.Errorf("stat sample: %w", err)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("sample path %s is a directory; provide a file", samplePath)
+	}
+	absSample, err := filepath.Abs(samplePath)
+	if err != nil {
+		return fmt.Errorf("resolve sample path: %w", err)
+	}
+
+	if imageDir == "" {
+		imageDir = DefaultImageDir
+	}
+	if runDir == "" {
+		runDir = DefaultRunDir
+	}
+	if libvirtConnectionURI == "" {
+		libvirtConnectionURI = DefaultConnectionURI
+	}
+
+	imageRepository := &images.LocalImageRepository{BaseDir: imageDir}
+	driver := &sandbox.LibvirtDriver{
+		ConnectionURI: libvirtConnectionURI,
+		BaseDir:       runDir,
+		Logger:        logger.With("driver", "libvirt"),
+	}
+
+	sampleName := filepath.Base(absSample)
+	sample := analysis.Sample{
+		ID:       fmt.Sprintf("%s-%s", sampleName, uuid.NewString()),
+		Name:     sampleName,
+		Artifact: absSample,
+	}
+
+	worker := analysis.NewAnalysisWorker(
+		logger.With("worker", sample.ID),
+		driver,
+		imageRepository,
+		c2Address,
+		sample,
+		sampleArgs,
+	)
+
+	logger.Info("starting analysis worker", "sample", sample.Name, "c2", c2Address)
+	if err := worker.Run(ctx); err != nil {
+		return err
+	}
+	logger.Info("analysis worker completed", "sample", sample.Name)
+	return nil
 }

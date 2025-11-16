@@ -73,12 +73,6 @@ type SandboxImage struct {
 	Metadata map[string]any
 }
 
-type Sample struct {
-	ID       string
-	Name     string
-	Artifact string
-}
-
 type SandboxState = string
 
 const (

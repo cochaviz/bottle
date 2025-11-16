@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -56,7 +57,11 @@ func newRootCommand(logger *slog.Logger, levelVar *slog.LevelVar) *cobra.Command
 		return nil
 	}
 
-	root.AddCommand(newSandboxCommand(logger), newSetupCommand(logger))
+	root.AddCommand(
+		newSandboxCommand(logger),
+		newSetupCommand(logger),
+		newAnalysisCommand(logger),
+	)
 	return root
 }
 
@@ -211,6 +216,75 @@ func newSandboxListCommand(logger *slog.Logger) *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&imageDir, "image-dir", config.DefaultImageDir, "Directory where images are stored")
+
+	return cmd
+}
+
+func newAnalysisCommand(logger *slog.Logger) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "analysis",
+		Short: "Run analysis workflows for malware samples",
+	}
+
+	cmd.AddCommand(newAnalysisRunCommand(logger))
+	return cmd
+}
+
+func newAnalysisRunCommand(logger *slog.Logger) *cobra.Command {
+	var (
+		imageDir      string
+		runDir        string
+		connectionURI string
+		c2Address     string
+		sampleArgs    []string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "run <sample-path>",
+		Args:  cobra.ExactArgs(1),
+		Short: "Execute a sample inside the sandbox analysis workflow",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			samplePath := strings.TrimSpace(args[0])
+			if samplePath == "" {
+				return fmt.Errorf("sample path is required")
+			}
+			absSample, err := filepath.Abs(samplePath)
+			if err != nil {
+				return fmt.Errorf("resolve sample path: %w", err)
+			}
+			info, err := os.Stat(absSample)
+			if err != nil {
+				if os.IsNotExist(err) {
+					return fmt.Errorf("sample %s does not exist", absSample)
+				}
+				return fmt.Errorf("stat sample: %w", err)
+			}
+			if info.IsDir() {
+				return fmt.Errorf("sample path %s is a directory; provide a file", absSample)
+			}
+
+			cmdLogger := logger.With("command", "analysis.run", "sample", filepath.Base(absSample))
+			if err := verifySetup(cmdLogger); err != nil {
+				return err
+			}
+
+			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+
+			if err := config.RunAnalysis(ctx, absSample, c2Address, imageDir, runDir, connectionURI, sampleArgs, cmdLogger); err != nil {
+				return err
+			}
+
+			cmdLogger.Info("analysis run completed")
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&imageDir, "image-dir", config.DefaultImageDir, "Directory where images are stored")
+	cmd.Flags().StringVar(&runDir, "run-dir", config.DefaultRunDir, "Directory to store sandbox run state")
+	cmd.Flags().StringVar(&connectionURI, "connect-uri", config.DefaultConnectionURI, "Libvirt connection URI")
+	cmd.Flags().StringVar(&c2Address, "c2", "", "Optional C2 address to inject into the analysis")
+	cmd.Flags().StringArrayVar(&sampleArgs, "sample-args", nil, "Argument to pass to the sample (repeat flag to add multiple)")
 
 	return cmd
 }

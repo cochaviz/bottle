@@ -14,6 +14,7 @@ type SandboxSpecficationRepository interface {
 type ImageRepository interface {
 	Save(image SandboxImage) error
 	LatestForSpec(specID string) (*SandboxImage, error)
+	FilterByArchitecture(architecture string) ([]*SandboxImage, error)
 	Get(imageID string) (*SandboxImage, error)
 }
 

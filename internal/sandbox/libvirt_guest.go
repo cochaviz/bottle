@@ -13,8 +13,10 @@ import (
 )
 
 const (
-	guestSetupMountPath  = "/mnt/mime_setup"
-	guestSampleMountPath = "/mnt/mime_sample"
+	// GuestSetupMountPath is the directory inside the guest where setup artifacts are mounted.
+	GuestSetupMountPath = "/mnt/mime_setup"
+	// GuestSampleMountPath is the directory inside the guest where sample artifacts are mounted.
+	GuestSampleMountPath = "/mnt/mime_sample"
 	guestMountTimeout    = 2 * time.Minute
 )
 
@@ -173,7 +175,7 @@ for dev in $(lsblk -nrpo NAME,TYPE 2>/dev/null | awk '$2 == "rom" { print $1 }')
     rmdir "$tmp"
 done
 printf '{"setup":"%%s","sample":"%%s"}' "$setup_path" "$sample_path"
-`, boolToInt(needSetup), boolToInt(needSample), guestSetupMountPath, guestSampleMountPath)
+`, boolToInt(needSetup), boolToInt(needSample), GuestSetupMountPath, GuestSampleMountPath)
 }
 
 func runGuestShellCommand(domain *libvirt.Domain, script string, timeout time.Duration) (guestCommandResult, error) {
@@ -186,6 +188,9 @@ func runGuestCommand(domain *libvirt.Domain, path string, args []string, timeout
 	}
 	if timeout <= 0 {
 		timeout = guestMountTimeout
+	}
+	if args == nil {
+		args = []string{}
 	}
 
 	req := guestExecRequest{
