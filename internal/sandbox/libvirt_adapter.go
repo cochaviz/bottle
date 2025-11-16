@@ -226,6 +226,63 @@ func (d *LibvirtDriver) Start(lease SandboxLease) (SandboxLease, error) {
 	return lease, nil
 }
 
+func (d *LibvirtDriver) Execute(lease SandboxLease, command SandboxCommand) (SandboxCommandResult, error) {
+	domainName, err := runtimeString(lease.RuntimeConfig, "domain_name")
+	if err != nil {
+		return SandboxCommandResult{}, err
+	}
+	connectionURI, err := runtimeString(lease.RuntimeConfig, "connection_uri")
+	if err != nil {
+		return SandboxCommandResult{}, err
+	}
+	if strings.TrimSpace(command.Path) == "" {
+		return SandboxCommandResult{}, fmt.Errorf("command path is required")
+	}
+
+	logger := d.logger().With(
+		"domain", domainName,
+		"lease_id", lease.ID,
+	)
+
+	conn, err := libvirt.NewConnect(connectionURI)
+	if err != nil {
+		return SandboxCommandResult{}, fmt.Errorf("open libvirt connection %s: %w", connectionURI, err)
+	}
+	defer conn.Close()
+
+	domain, err := conn.LookupDomainByName(domainName)
+	if err != nil {
+		return SandboxCommandResult{}, fmt.Errorf("lookup domain %s: %w", domainName, err)
+	}
+	defer domain.Free()
+
+	if err := waitForGuestAgent(domain, 5*time.Second, 24); err != nil {
+		return SandboxCommandResult{}, err
+	}
+
+	timeout := command.Timeout
+	if timeout <= 0 {
+		timeout = guestMountTimeout
+	}
+
+	result, err := runGuestCommand(domain, command.Path, command.Args, timeout)
+	if err != nil {
+		return SandboxCommandResult{
+			Stdout:   result.Stdout,
+			Stderr:   result.Stderr,
+			ExitCode: result.ExitCode,
+		}, err
+	}
+
+	logger.Debug("guest command executed", "path", command.Path, "exit_code", result.ExitCode)
+
+	return SandboxCommandResult{
+		Stdout:   result.Stdout,
+		Stderr:   result.Stderr,
+		ExitCode: result.ExitCode,
+	}, nil
+}
+
 func (d *LibvirtDriver) Pause(lease SandboxLease, reason string) (SandboxLease, error) {
 	// Implementation details
 	return SandboxLease{}, fmt.Errorf("pause not implemented")

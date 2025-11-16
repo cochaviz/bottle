@@ -106,3 +106,15 @@ type SandboxLease struct {
 	RuntimeConfig map[string]any
 	Metadata      map[string]any
 }
+
+type SandboxCommand struct {
+	Path    string
+	Args    []string
+	Timeout time.Duration
+}
+
+type SandboxCommandResult struct {
+	Stdout   string
+	Stderr   string
+	ExitCode int
+}

@@ -177,11 +177,22 @@ printf '{"setup":"%%s","sample":"%%s"}' "$setup_path" "$sample_path"
 }
 
 func runGuestShellCommand(domain *libvirt.Domain, script string, timeout time.Duration) (guestCommandResult, error) {
+	return runGuestCommand(domain, "/bin/sh", []string{"-c", script}, timeout)
+}
+
+func runGuestCommand(domain *libvirt.Domain, path string, args []string, timeout time.Duration) (guestCommandResult, error) {
+	if strings.TrimSpace(path) == "" {
+		return guestCommandResult{}, errors.New("guest command path is required")
+	}
+	if timeout <= 0 {
+		timeout = guestMountTimeout
+	}
+
 	req := guestExecRequest{
 		Execute: "guest-exec",
 		Arguments: guestExecArguments{
-			Path:          "/bin/sh",
-			Arg:           []string{"-c", script},
+			Path:          path,
+			Arg:           args,
 			CaptureOutput: true,
 		},
 	}
