@@ -92,6 +92,37 @@ func (d *LibvirtDriver) Acquire(spec SandboxLeaseSpecification) (SandboxLease, e
 		return SandboxLease{}, fmt.Errorf("derive domain template data: %w", err)
 	}
 
+	setupLetter := resolveDeviceLetter(refSpec.DomainProfile.SetupLetter, "b")
+	sampleFallbackLetter := "b"
+	if strings.TrimSpace(spec.SetupDir) != "" {
+		sampleFallbackLetter = nextDeviceLetter(setupLetter)
+	}
+	sampleLetter := resolveDeviceLetter(refSpec.DomainProfile.SampleLetter, sampleFallbackLetter)
+
+	if strings.TrimSpace(spec.SetupDir) != "" {
+		setupImage, err := prepareSandboxDisk(runDir, spec.SetupDir, "setup", sanitizeVolumeLabel(domainName, "setup"), true)
+		if err != nil {
+			return SandboxLease{}, fmt.Errorf("prepare setup disk: %w", err)
+		}
+		domainData.SetupDisk = &domainDiskAttachment{
+			File:   setupImage,
+			Target: cdDeviceTarget(refSpec.DomainProfile.CDPrefix, setupLetter),
+		}
+		logger.Debug("prepared setup disk", "path", setupImage)
+	}
+
+	if strings.TrimSpace(spec.SampleDir) != "" {
+		sampleImage, err := prepareSandboxDisk(runDir, spec.SampleDir, "sample", sanitizeVolumeLabel(domainName, "sample"), false)
+		if err != nil {
+			return SandboxLease{}, fmt.Errorf("prepare sample disk: %w", err)
+		}
+		domainData.SampleDisk = &domainDiskAttachment{
+			File:   sampleImage,
+			Target: cdDeviceTarget(refSpec.DomainProfile.CDPrefix, sampleLetter),
+		}
+		logger.Debug("prepared sample disk", "path", sampleImage)
+	}
+
 	domainXML, err := renderDomainXML(defaultDomain, domainData)
 	if err != nil {
 		return SandboxLease{}, fmt.Errorf("render domain definition: %w", err)
@@ -184,6 +215,10 @@ func (d *LibvirtDriver) Start(lease SandboxLease) (SandboxLease, error) {
 		logger.Info("sandbox domain started")
 	} else {
 		logger.Info("sandbox domain already running", "state", state)
+	}
+
+	if err := d.configureGuestMounts(domain, &lease, logger); err != nil {
+		return lease, err
 	}
 
 	lease.SandboxState = SandboxRunning

@@ -134,6 +134,8 @@ func newSandboxRunCommand(logger *slog.Logger) *cobra.Command {
 		connectionURI string
 		domainName    string
 		imageDir      string
+		sampleDir     string
+		setupDir      string
 	)
 
 	cmd := &cobra.Command{
@@ -155,7 +157,7 @@ func newSandboxRunCommand(logger *slog.Logger) *cobra.Command {
 			defer stop()
 
 			cmdLogger.Info("starting sandbox worker; press Ctrl+C to stop", "run_dir", runDir)
-			if err := config.RunSandbox(ctx, specID, imageDir, runDir, domainName, connectionURI, cmdLogger); err != nil {
+			if err := config.RunSandbox(ctx, specID, imageDir, runDir, sampleDir, setupDir, domainName, connectionURI, cmdLogger); err != nil {
 				cmdLogger.Error("sandbox worker failed", "error", err)
 				return err
 			}
@@ -169,6 +171,8 @@ func newSandboxRunCommand(logger *slog.Logger) *cobra.Command {
 	cmd.Flags().StringVar(&runDir, "run-dir", config.DefaultRunDir, "Directory to store sandbox run state")
 	cmd.Flags().StringVar(&connectionURI, "connect-uri", config.DefaultConnectionURI, "Libvirt connection URI")
 	cmd.Flags().StringVar(&domainName, "domain", "", "Optional domain name override")
+	cmd.Flags().StringVar(&sampleDir, "sample-dir", "", "Directory containing sample files to mount into the sandbox")
+	cmd.Flags().StringVar(&setupDir, "setup-dir", "", "Directory containing setup scripts to mount into the sandbox")
 
 	return cmd
 }

@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"cochaviz/mime/internal/artifacts"
+
+	"github.com/kdomanski/iso9660"
 )
 
 func TestLibvirtDriverAcquireCreatesWorkspace(t *testing.T) {
@@ -159,6 +161,75 @@ func TestLibvirtDriverAcquireValidation(t *testing.T) {
 	}
 }
 
+func TestLibvirtDriverAcquireMountsSampleAndSetupDirs(t *testing.T) {
+	stubQemuImg(t)
+
+	baseImage := filepath.Join(t.TempDir(), "base.qcow2")
+	if err := os.WriteFile(baseImage, []byte("base-image"), 0o644); err != nil {
+		t.Fatalf("write base image: %v", err)
+	}
+
+	driver := &LibvirtDriver{
+		ConnectionURI: "qemu:///session",
+		BaseDir:       filepath.Join(t.TempDir(), "runs"),
+		Logger:        slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	sampleDir := t.TempDir()
+	sampleFile := filepath.Join(sampleDir, "sample.bin")
+	if err := os.WriteFile(sampleFile, []byte("data"), 0o644); err != nil {
+		t.Fatalf("write sample file: %v", err)
+	}
+
+	setupDir := t.TempDir()
+	setupScript := filepath.Join(setupDir, "setup.ps1")
+	if err := os.WriteFile(setupScript, []byte("Write-Host setup"), 0o644); err != nil {
+		t.Fatalf("write setup script: %v", err)
+	}
+
+	spec := testLeaseSpecification(baseImage)
+	spec.SampleDir = sampleDir
+	spec.SetupDir = setupDir
+
+	lease, err := driver.Acquire(spec)
+	if err != nil {
+		t.Fatalf("Acquire() error = %v", err)
+	}
+
+	setupPath := filepath.Join(lease.RunDir, "setup.iso")
+	samplePath := filepath.Join(lease.RunDir, "sample.iso")
+
+	if _, err := os.Stat(setupPath); err != nil {
+		t.Fatalf("stat setup disk: %v", err)
+	}
+	if _, err := os.Stat(samplePath); err != nil {
+		t.Fatalf("stat sample disk: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(setupDir, "setup")); err == nil || !os.IsNotExist(err) {
+		t.Fatalf("setup marker should not exist in original directory: %v", err)
+	}
+
+	domainXMLPath := runtimePath(t, lease.RuntimeConfig, "domain_xml")
+	domainXML, err := os.ReadFile(domainXMLPath)
+	if err != nil {
+		t.Fatalf("read domain xml: %v", err)
+	}
+	if !strings.Contains(string(domainXML), setupPath) {
+		t.Fatalf("domain XML missing setup disk reference: %s", domainXML)
+	}
+	if !strings.Contains(string(domainXML), samplePath) {
+		t.Fatalf("domain XML missing sample disk reference: %s", domainXML)
+	}
+
+	if !isoContainsFile(t, setupPath, "setup") {
+		t.Fatalf("setup disk missing setup marker")
+	}
+	if !isoContainsFile(t, samplePath, "sample.bin") {
+		t.Fatalf("sample disk missing sample payload")
+	}
+}
+
 func testLeaseSpecification(imagePath string) SandboxLeaseSpecification {
 	spec := SandboxLeaseSpecification{
 		SandboxImage: SandboxImage{
@@ -236,4 +307,48 @@ func runtimeValue(t *testing.T, cfg map[string]any, key string) string {
 		t.Fatalf("runtime config %s is %T, want string", key, val)
 	}
 	return text
+}
+
+func isoContainsFile(t *testing.T, isoPath, fileName string) bool {
+	t.Helper()
+
+	f, err := os.Open(isoPath)
+	if err != nil {
+		t.Fatalf("open iso file: %v", err)
+	}
+	defer f.Close()
+
+	image, err := iso9660.OpenImage(f)
+	if err != nil {
+		t.Fatalf("open iso image: %v", err)
+	}
+
+	root, err := image.RootDir()
+	if err != nil {
+		t.Fatalf("get iso root: %v", err)
+	}
+	return isoSearchFile(root, fileName)
+}
+
+func isoSearchFile(entry *iso9660.File, want string) bool {
+	if entry == nil {
+		return false
+	}
+	if !entry.IsDir() && strings.EqualFold(entry.Name(), want) {
+		return true
+	}
+	if !entry.IsDir() {
+		return false
+	}
+
+	children, err := entry.GetChildren()
+	if err != nil {
+		return false
+	}
+	for _, child := range children {
+		if isoSearchFile(child, want) {
+			return true
+		}
+	}
+	return false
 }
