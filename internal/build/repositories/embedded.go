@@ -2,8 +2,10 @@ package repositories
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 
+	"cochaviz/mime/internal/artifacts"
 	"cochaviz/mime/internal/build"
 	"cochaviz/mime/internal/sandbox"
 )
@@ -16,58 +18,6 @@ const (
 	defaultDiskSize  = 4
 	defaultNetwork   = "build"
 )
-
-const preseedContent = `d-i debian-installer/locale string en_US
-d-i keyboard-configuration/xkb-keymap select us
-d-i netcfg/choose_interface select auto
-d-i netcfg/get_hostname string unassigned-hostname
-d-i netcfg/get_domain string unassigned-domain
-d-i netcfg/wireless_wep string
-d-i mirror/country string manual
-d-i mirror/http/hostname string http.us.debian.org
-d-i mirror/http/directory string /debian
-d-i mirror/http/proxy string
-d-i passwd/make-user boolean false
-d-i passwd/root-password password lab
-d-i passwd/root-password-again password lab
-d-i clock-setup/utc boolean true
-d-i time/zone string US/Eastern
-d-i clock-setup/ntp boolean true
-d-i partman-auto/method string lvm
-d-i partman-auto-lvm/guided_size string max
-d-i partman-lvm/device_remove_lvm boolean true
-d-i partman-md/device_remove_md boolean true
-d-i partman-lvm/confirm boolean true
-d-i partman-lvm/confirm_nooverwrite boolean true
-d-i partman-auto/choose_recipe select atomic
-d-i partman-partitioning/confirm_write_new_label boolean true
-d-i partman/choose_partition select finish
-d-i partman/confirm boolean true
-d-i partman/confirm_nooverwrite boolean true
-d-i partman-md/confirm boolean true
-d-i partman-partitioning/confirm_write_new_label boolean true
-d-i partman/choose_partition select finish
-d-i partman/confirm boolean true
-d-i partman/confirm_nooverwrite boolean true
-d-i apt-setup/cdrom/set-first boolean false
-d-i grub-installer/only_debian boolean true
-d-i grub-installer/with_other_os boolean true
-d-i grub-installer/bootdev  string default
-d-i finish-install/reboot_in_progress note
-d-i preseed/late_command \
-        string apt-install qemu-guest-agent && in-target systemctl enable qemu-guest-agent.service
-`
-
-const buildNetworkContent = `<network>
-  <name>build</name>
-  <forward mode='nat'/>
-  <ip address='192.168.252.1' netmask='255.255.255.0'>
-    <dhcp>
-      <range start='192.168.252.2' end='192.168.252.254'/>
-    </dhcp>
-  </ip>
-</network>
-`
 
 // EmbeddedSpecificationRepository contains built-in sandbox specifications.
 type EmbeddedSpecificationRepository struct {
@@ -336,6 +286,7 @@ func makeSpec(
 				"maintainer":  "embedded",
 				"description": "Embedded Debian netinst profile for sandbox builds",
 			},
+			SetupFiles: defaultSetupFiles(),
 		},
 		InstallerAssets: map[string]string{
 			"preseed_content":       preseedContent,
@@ -379,6 +330,29 @@ func networkLayout() map[string]any {
 				"name":       "eth0",
 				"model":      "virtio",
 				"addressing": "dhcp",
+			},
+		},
+	}
+}
+
+var (
+	preseedContent      = embeddedPreseed
+	buildNetworkContent = embeddedBuildNetwork
+)
+
+func defaultSetupFiles() []artifacts.Artifact {
+	scriptPath, err := materializeSetupScript()
+	if err != nil {
+		panic(fmt.Sprintf("materialize setup script: %v", err))
+	}
+	return []artifacts.Artifact{
+		{
+			ID:   "bringup-dhcp",
+			Kind: artifacts.TextArtifact,
+			URI:  fmt.Sprintf("file://%s", scriptPath),
+			Metadata: map[string]any{
+				"filename": "bringup-dhcp.sh",
+				"args":     []string{"--persist"},
 			},
 		},
 	}

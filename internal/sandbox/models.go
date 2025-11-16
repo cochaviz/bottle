@@ -45,15 +45,20 @@ type RunProfile struct {
 
 // SandboxSpec is a declarative description of a sandbox base image.
 type SandboxSpecification struct {
-	ID            string
-	Version       string
-	OSRelease     string
+	ID        string
+	Version   string
+	OSRelease string
+
 	DomainProfile DomainProfile
 	RunProfile    RunProfile
-	Packages      []string
+
+	Packages []string
+
 	Hardening     map[string]any
 	NetworkLayout map[string]any
 	Metadata      map[string]any
+
+	SetupFiles []artifacts.Artifact
 }
 
 // SandboxImage is a record describing a built sandbox image.
@@ -88,7 +93,6 @@ type SandboxLeaseSpecification struct {
 	DomainName string // Domain name for the sandbox.
 
 	SampleDir string // Directory containing sample files to be mounted into the sandbox.
-	SetupDir  string // Directory containing setup scripts to be executed after the sandbox is booted (e.g. DHCP configuration).
 
 	SandboxImage          SandboxImage
 	OverrideSpecification *SandboxSpecification // Specification used to override the image's specification (if provided)

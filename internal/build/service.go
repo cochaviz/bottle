@@ -64,6 +64,14 @@ func (s *BuildService) Run(request *BuildRequest) error {
 		return err
 	}
 
+	setupArtifacts, err := storeLocalArtifacts(
+		requestedSpec.SandboxSpecification.SetupFiles,
+		s.ArtifactStore,
+	)
+	if err != nil {
+		return err
+	}
+
 	logger.Info("stored build artifacts",
 		"companion_artifacts", len(companionArtifacts),
 		"image_uri", buildOutput.DiskImage.URI,
@@ -89,13 +97,20 @@ func (s *BuildService) Run(request *BuildRequest) error {
 		requestedSpec.SandboxSpecification.Version,
 	)
 
+	refSpec := requestedSpec.SandboxSpecification
+	if len(setupArtifacts) > 0 {
+		refSpec.SetupFiles = cloneArtifactsList(setupArtifacts)
+	} else {
+		refSpec.SetupFiles = nil
+	}
+
 	image := sandbox.SandboxImage{
 		ID:                     imageID,
-		ReferenceSpecification: requestedSpec.SandboxSpecification,
+		ReferenceSpecification: refSpec,
 		ImageArtifact:          imageArtifact,
 		CreatedAt:              time.Now(),
 		Metadata:               map[string]any{},
-		CompanionArtifacts:     companionArtifacts,
+		CompanionArtifacts:     append(companionArtifacts, setupArtifacts...),
 	}
 
 	if err := s.ImageRepository.Save(image); err != nil {
@@ -152,4 +167,13 @@ func storeLocalArtifacts(buildArtifacts []artifacts.Artifact, repository artifac
 		storedArtifacts = append(storedArtifacts, storedArtifact)
 	}
 	return storedArtifacts, nil
+}
+
+func cloneArtifactsList(items []artifacts.Artifact) []artifacts.Artifact {
+	if len(items) == 0 {
+		return nil
+	}
+	cloned := make([]artifacts.Artifact, len(items))
+	copy(cloned, items)
+	return cloned
 }
