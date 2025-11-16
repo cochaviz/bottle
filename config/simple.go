@@ -1,6 +1,7 @@
 package simple
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"cochaviz/mime/internal/build/adapters/libvirt"
 	buildspecs "cochaviz/mime/internal/build/repositories"
 	"cochaviz/mime/internal/logging"
+	"cochaviz/mime/internal/sandbox"
 	"cochaviz/mime/internal/sandbox/repositories/images"
 	"cochaviz/mime/internal/setup"
 )
@@ -18,6 +20,7 @@ import (
 var DefaultArtifactDir = filepath.Join(setup.StorageDir, "artifacts")
 var DefaultImageDir = filepath.Join(setup.StorageDir, "images")
 var DefaultBuildRoot = filepath.Join(setup.StorageDir, "builds")
+var DefaultRunDir = filepath.Join(setup.StorageDir, "leases")
 var DefaultConnectionURI = "qemu:///system"
 
 // Build executes the end-to-end flow to produce an image for the requested specification.
@@ -111,4 +114,58 @@ func List(imageDir string) ([]string, []bool, error) {
 	}
 
 	return specIDs, built, nil
+}
+
+// RunSandbox acquires and runs a sandbox until the provided context is cancelled or the domain stops.
+func RunSandbox(
+	ctx context.Context,
+	specificationID,
+	imageDir,
+	runDir,
+	domainName,
+	libvirtConnectionURI string,
+	logger *slog.Logger,
+) error {
+	logger = logging.Ensure(logger).With("component", "config.simple", "operation", "run")
+
+	if specificationID == "" {
+		return fmt.Errorf("specification id is required")
+	}
+	if imageDir == "" {
+		imageDir = DefaultImageDir
+	}
+	if runDir == "" {
+		runDir = DefaultRunDir
+	}
+	if libvirtConnectionURI == "" {
+		libvirtConnectionURI = DefaultConnectionURI
+	}
+
+	imageRepository := &images.LocalImageRepository{BaseDir: imageDir}
+	image, err := imageRepository.LatestForSpec(specificationID)
+	if err != nil {
+		return fmt.Errorf("lookup image: %w", err)
+	}
+	if image == nil {
+		return fmt.Errorf("no image found for specification %s in %s", specificationID, imageDir)
+	}
+
+	driver := &sandbox.LibvirtDriver{
+		ConnectionURI: libvirtConnectionURI,
+		BaseDir:       runDir,
+		Logger:        logger.With("driver", "libvirt"),
+	}
+
+	lease, err := driver.Acquire(sandbox.SandboxLeaseSpecification{
+		DomainName:   domainName,
+		SandboxImage: *image,
+	})
+	if err != nil {
+		return fmt.Errorf("acquire sandbox: %w", err)
+	}
+
+	worker := sandbox.NewSandboxWorker(driver, lease, logger.With("worker", lease.ID))
+	logger.Info("sandbox lease acquired", "lease_id", lease.ID)
+
+	return worker.Run(ctx)
 }

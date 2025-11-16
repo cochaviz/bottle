@@ -13,8 +13,6 @@ import (
 
 	config "cochaviz/mime/config"
 	"cochaviz/mime/internal/logging"
-	"cochaviz/mime/internal/sandbox"
-	repoimages "cochaviz/mime/internal/sandbox/repositories/images"
 	"cochaviz/mime/internal/setup"
 )
 
@@ -132,10 +130,10 @@ func newSandboxBuildCommand(logger *slog.Logger) *cobra.Command {
 
 func newSandboxRunCommand(logger *slog.Logger) *cobra.Command {
 	var (
-		imageDir      string
 		runDir        string
 		connectionURI string
 		domainName    string
+		imageDir      string
 	)
 
 	cmd := &cobra.Command{
@@ -153,42 +151,11 @@ func newSandboxRunCommand(logger *slog.Logger) *cobra.Command {
 				return err
 			}
 
-			imageRepository := &repoimages.LocalImageRepository{BaseDir: imageDir}
-			image, err := imageRepository.LatestForSpec(specID)
-			if err != nil {
-				cmdLogger.Error("failed to lookup image", "error", err, "image_dir", imageDir)
-				return err
-			}
-			if image == nil {
-				return fmt.Errorf("no image found for specification %s in %s", specID, imageDir)
-			}
-
-			driver := &sandbox.LibvirtDriver{
-				ConnectionURI: connectionURI,
-				BaseDir:       runDir,
-				Logger:        cmdLogger.With("driver", "libvirt"),
-			}
-
-			leaseSpec := sandbox.SandboxLeaseSpecification{
-				DomainName:   domainName,
-				SandboxImage: *image,
-			}
-
-			cmdLogger.Info("acquiring sandbox lease", "run_dir", runDir)
-			lease, err := driver.Acquire(leaseSpec)
-			if err != nil {
-				cmdLogger.Error("acquire failed", "error", err)
-				return err
-			}
-			cmdLogger.Info("sandbox lease acquired", "lease_id", lease.ID)
-
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 
-			worker := sandbox.NewSandboxWorker(driver, lease, logger)
-
-			cmdLogger.Info("starting sandbox worker; press Ctrl+C to stop")
-			if err := worker.Run(ctx); err != nil {
+			cmdLogger.Info("starting sandbox worker; press Ctrl+C to stop", "run_dir", runDir)
+			if err := config.RunSandbox(ctx, specID, imageDir, runDir, domainName, connectionURI, cmdLogger); err != nil {
 				cmdLogger.Error("sandbox worker failed", "error", err)
 				return err
 			}
@@ -199,7 +166,7 @@ func newSandboxRunCommand(logger *slog.Logger) *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&imageDir, "image-dir", config.DefaultImageDir, "Directory where images are stored")
-	cmd.Flags().StringVar(&runDir, "run-dir", setup.StorageDir+"leases", "Directory to store sandbox run state")
+	cmd.Flags().StringVar(&runDir, "run-dir", config.DefaultRunDir, "Directory to store sandbox run state")
 	cmd.Flags().StringVar(&connectionURI, "connect-uri", config.DefaultConnectionURI, "Libvirt connection URI")
 	cmd.Flags().StringVar(&domainName, "domain", "", "Optional domain name override")
 
