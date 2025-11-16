@@ -27,7 +27,6 @@ type AnalysisWorker struct {
 	driver sandbox.SandboxDriver
 
 	imageRepo sandbox.ImageRepository
-	specRepo  sandbox.SandboxSpecficationRepository
 
 	c2Ip       string
 	sample     Sample
