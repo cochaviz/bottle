@@ -352,7 +352,6 @@ func defaultSetupFiles() []artifacts.Artifact {
 			URI:  fmt.Sprintf("file://%s", scriptPath),
 			Metadata: map[string]any{
 				"filename": "bringup-dhcp.sh",
-				"args":     []string{"--persist"},
 			},
 		},
 	}

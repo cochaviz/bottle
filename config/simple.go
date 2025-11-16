@@ -123,7 +123,6 @@ func RunSandbox(
 	imageDir,
 	runDir,
 	sampleDir,
-	setupDir,
 	domainName,
 	libvirtConnectionURI string,
 	logger *slog.Logger,
@@ -161,7 +160,6 @@ func RunSandbox(
 	lease, err := driver.Acquire(sandbox.SandboxLeaseSpecification{
 		DomainName:   domainName,
 		SampleDir:    sampleDir,
-		SetupDir:     setupDir,
 		SandboxImage: *image,
 	})
 	if err != nil {

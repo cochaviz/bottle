@@ -92,15 +92,26 @@ func (d *LibvirtDriver) Acquire(spec SandboxLeaseSpecification) (SandboxLease, e
 		return SandboxLease{}, fmt.Errorf("derive domain template data: %w", err)
 	}
 
+	setupEntries, err := computeSetupFileEntries(refSpec.SetupFiles)
+	if err != nil {
+		return SandboxLease{}, fmt.Errorf("prepare setup files: %w", err)
+	}
+
 	setupLetter := resolveDeviceLetter(refSpec.DomainProfile.SetupLetter, "b")
 	sampleFallbackLetter := "b"
-	if strings.TrimSpace(spec.SetupDir) != "" {
+	if len(setupEntries) > 0 {
 		sampleFallbackLetter = nextDeviceLetter(setupLetter)
 	}
 	sampleLetter := resolveDeviceLetter(refSpec.DomainProfile.SampleLetter, sampleFallbackLetter)
 
-	if strings.TrimSpace(spec.SetupDir) != "" {
-		setupImage, err := prepareSandboxDisk(runDir, spec.SetupDir, "setup", sanitizeVolumeLabel(domainName, "setup"), true)
+	if len(setupEntries) > 0 {
+		setupStagingDir, err := stageSetupFiles(runDir, setupEntries)
+		if err != nil {
+			return SandboxLease{}, fmt.Errorf("stage setup files: %w", err)
+		}
+		defer os.RemoveAll(setupStagingDir)
+
+		setupImage, err := prepareSandboxDisk(runDir, setupStagingDir, "setup", sanitizeVolumeLabel(domainName, "setup"), true)
 		if err != nil {
 			return SandboxLease{}, fmt.Errorf("prepare setup disk: %w", err)
 		}
@@ -190,6 +201,11 @@ func (d *LibvirtDriver) Start(lease SandboxLease) (SandboxLease, error) {
 	}
 	defer conn.Close()
 
+	setupEntries, err := computeSetupFileEntries(lease.Specification.SandboxImage.ReferenceSpecification.SetupFiles)
+	if err != nil {
+		return lease, fmt.Errorf("resolve setup files: %w", err)
+	}
+
 	var domain *libvirt.Domain
 	domain, err = conn.LookupDomainByName(domainName)
 	if err != nil {
@@ -217,13 +233,38 @@ func (d *LibvirtDriver) Start(lease SandboxLease) (SandboxLease, error) {
 		logger.Info("sandbox domain already running", "state", state)
 	}
 
-	if err := d.configureGuestMounts(domain, &lease, logger); err != nil {
+	setupMountPath, _, err := d.configureGuestMounts(domain, &lease, setupEntries, logger)
+	if err != nil {
+		return lease, err
+	}
+
+	if err := d.runSetupScripts(domain, setupEntries, setupMountPath, logger); err != nil {
 		return lease, err
 	}
 
 	lease.SandboxState = SandboxRunning
 	lease.StartTime = time.Now().UTC()
 	return lease, nil
+}
+
+func (d *LibvirtDriver) runSetupScripts(domain *libvirt.Domain, entries []setupFileEntry, setupMountPath string, logger *slog.Logger) error {
+	if len(entries) == 0 {
+		return nil
+	}
+
+	if strings.TrimSpace(setupMountPath) == "" {
+		return fmt.Errorf("setup mount path not detected")
+	}
+
+	for _, entry := range entries {
+		guestPath := filepath.Join(setupMountPath, entry.FileName)
+		if _, err := runGuestCommand(domain, "/bin/bash", []string{guestPath}, guestMountTimeout); err != nil {
+			return fmt.Errorf("execute setup script %s: %w", entry.FileName, err)
+		}
+		logger.Info("setup script executed", "script", entry.FileName)
+	}
+
+	return nil
 }
 
 func (d *LibvirtDriver) Execute(lease SandboxLease, command SandboxCommand) (SandboxCommandResult, error) {

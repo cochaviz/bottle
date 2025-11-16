@@ -189,7 +189,16 @@ func TestLibvirtDriverAcquireMountsSampleAndSetupDirs(t *testing.T) {
 
 	spec := testLeaseSpecification(baseImage)
 	spec.SampleDir = sampleDir
-	spec.SetupDir = setupDir
+	spec.SandboxImage.ReferenceSpecification.SetupFiles = []artifacts.Artifact{
+		{
+			ID:   "setup-script",
+			Kind: artifacts.TextArtifact,
+			URI:  fmt.Sprintf("file://%s", setupScript),
+			Metadata: map[string]any{
+				"filename": "setup.ps1",
+			},
+		},
+	}
 
 	lease, err := driver.Acquire(spec)
 	if err != nil {
@@ -204,10 +213,6 @@ func TestLibvirtDriverAcquireMountsSampleAndSetupDirs(t *testing.T) {
 	}
 	if _, err := os.Stat(samplePath); err != nil {
 		t.Fatalf("stat sample disk: %v", err)
-	}
-
-	if _, err := os.Stat(filepath.Join(setupDir, "setup")); err == nil || !os.IsNotExist(err) {
-		t.Fatalf("setup marker should not exist in original directory: %v", err)
 	}
 
 	domainXMLPath := runtimePath(t, lease.RuntimeConfig, "domain_xml")
@@ -228,6 +233,7 @@ func TestLibvirtDriverAcquireMountsSampleAndSetupDirs(t *testing.T) {
 	if !isoContainsFile(t, samplePath, "sample.bin") {
 		t.Fatalf("sample disk missing sample payload")
 	}
+
 }
 
 func testLeaseSpecification(imagePath string) SandboxLeaseSpecification {

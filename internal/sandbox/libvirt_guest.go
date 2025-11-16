@@ -61,21 +61,21 @@ type guestExecStatusResult struct {
 	ErrData  string `json:"err-data"`
 }
 
-func (d *LibvirtDriver) configureGuestMounts(domain *libvirt.Domain, lease *SandboxLease, logger *slog.Logger) error {
-	needSetup := strings.TrimSpace(lease.Specification.SetupDir) != ""
+func (d *LibvirtDriver) configureGuestMounts(domain *libvirt.Domain, lease *SandboxLease, setupEntries []setupFileEntry, logger *slog.Logger) (string, string, error) {
+	needSetup := len(setupEntries) > 0
 	needSample := strings.TrimSpace(lease.Specification.SampleDir) != ""
 	if !needSetup && !needSample {
-		return nil
+		return "", "", nil
 	}
 
 	if err := waitForGuestAgent(domain, 5*time.Second, 24); err != nil {
-		return fmt.Errorf("wait for guest agent: %w", err)
+		return "", "", fmt.Errorf("wait for guest agent: %w", err)
 	}
 
 	script := buildGuestMountScript(needSetup, needSample)
 	result, err := runGuestShellCommand(domain, script, guestMountTimeout)
 	if err != nil {
-		return fmt.Errorf("configure guest mounts: %w", err)
+		return "", "", fmt.Errorf("configure guest mounts: %w", err)
 	}
 
 	var mounts struct {
@@ -84,17 +84,17 @@ func (d *LibvirtDriver) configureGuestMounts(domain *libvirt.Domain, lease *Sand
 	}
 	output := strings.TrimSpace(result.Stdout)
 	if output == "" {
-		return errors.New("guest mount discovery produced no output")
+		return "", "", errors.New("guest mount discovery produced no output")
 	}
 	if err := json.Unmarshal([]byte(output), &mounts); err != nil {
-		return fmt.Errorf("parse guest mount discovery output: %w", err)
+		return "", "", fmt.Errorf("parse guest mount discovery output: %w", err)
 	}
 
 	if needSetup && strings.TrimSpace(mounts.Setup) == "" {
-		return errors.New("setup disk not detected inside guest")
+		return "", "", errors.New("setup disk not detected inside guest")
 	}
 	if needSample && strings.TrimSpace(mounts.Sample) == "" {
-		return errors.New("sample disk not detected inside guest")
+		return "", "", errors.New("sample disk not detected inside guest")
 	}
 
 	if lease.Metadata == nil {
@@ -108,7 +108,7 @@ func (d *LibvirtDriver) configureGuestMounts(domain *libvirt.Domain, lease *Sand
 		lease.Metadata["sample_mount_path"] = samplePath
 		logger.Info("detected sample disk", "guest_path", samplePath)
 	}
-	return nil
+	return strings.TrimSpace(mounts.Setup), strings.TrimSpace(mounts.Sample), nil
 }
 
 func waitForGuestAgent(domain *libvirt.Domain, interval time.Duration, retries int) error {

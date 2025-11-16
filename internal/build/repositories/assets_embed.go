@@ -30,22 +30,17 @@ func materializeSetupScript() (string, error) {
 			return
 		}
 
-		cleanup := func(e error) {
-			setupScriptErr = e
+		if _, err := f.WriteString(embeddedBringupDHCP); err != nil {
+			setupScriptErr = fmt.Errorf("write setup script: %w", err)
 			f.Close()
 			_ = os.Remove(f.Name())
+			return
 		}
+		f.Close()
 
-		if _, err := f.WriteString(embeddedBringupDHCP); err != nil {
-			cleanup(fmt.Errorf("write setup script: %w", err))
-			return
-		}
-		if err := f.Chmod(0o755); err != nil {
-			cleanup(fmt.Errorf("chmod setup script: %w", err))
-			return
-		}
-		if err := f.Close(); err != nil {
-			cleanup(fmt.Errorf("close setup script: %w", err))
+		if err := os.Chmod(f.Name(), 0o755); err != nil {
+			setupScriptErr = fmt.Errorf("chmod setup script: %w", err)
+			_ = os.Remove(f.Name())
 			return
 		}
 		setupScriptPath = f.Name()
