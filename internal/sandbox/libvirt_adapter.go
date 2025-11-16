@@ -79,7 +79,9 @@ func (d *LibvirtDriver) Acquire(spec SandboxLeaseSpecification) (SandboxLease, e
 	}
 	baseImagePath = filepath.Clean(baseImagePath)
 
-	baseAbs, overlayAbs, err := createDiskOverlay(baseImagePath, filepath.Join(runDir, "disk-overlay.qcow2"))
+	backingFormat := detectDiskFormat(spec.SandboxImage, baseImagePath)
+
+	baseAbs, overlayAbs, err := createDiskOverlay(baseImagePath, filepath.Join(runDir, "disk-overlay.qcow2"), backingFormat)
 	if err != nil {
 		return SandboxLease{}, fmt.Errorf("prepare overlay disk: %w", err)
 	}
@@ -199,7 +201,7 @@ func (d *LibvirtDriver) Resume(lease SandboxLease) (SandboxLease, error) {
 	return SandboxLease{}, fmt.Errorf("resume not implemented")
 }
 
-func (d *LibvirtDriver) Destroy(lease SandboxLease, force bool) error {
+func (d *LibvirtDriver) Release(lease SandboxLease, force bool) error {
 	connectionURI, err := runtimeString(lease.RuntimeConfig, "connection_uri")
 	if err != nil {
 		// If runtime configuration is missing, we can only clean up the run dir.
@@ -253,7 +255,46 @@ func (d *LibvirtDriver) Destroy(lease SandboxLease, force bool) error {
 	return nil
 }
 
-func (d *LibvirtDriver) CollectMetrics(lease SandboxLease) (LeaseMetrics, error) {
-	// Implementation details
-	return LeaseMetrics{}, nil
+func (d *LibvirtDriver) CollectMetrics(lease SandboxLease) (SandboxMetrics, error) {
+	connectionURI, err := runtimeString(lease.RuntimeConfig, "connection_uri")
+	if err != nil {
+		return SandboxMetrics{}, err
+	}
+	domainName, err := runtimeString(lease.RuntimeConfig, "domain_name")
+	if err != nil {
+		return SandboxMetrics{}, err
+	}
+
+	conn, err := libvirt.NewConnect(connectionURI)
+	if err != nil {
+		return SandboxMetrics{}, fmt.Errorf("open libvirt connection %s: %w", connectionURI, err)
+	}
+	defer conn.Close()
+
+	domain, err := conn.LookupDomainByName(domainName)
+	if err != nil {
+		return SandboxMetrics{}, fmt.Errorf("lookup domain %s: %w", domainName, err)
+	}
+	defer domain.Free()
+
+	info, err := domain.GetInfo()
+	if err != nil {
+		return SandboxMetrics{}, fmt.Errorf("get domain info: %w", err)
+	}
+
+	state := info.State
+	if state != libvirt.DOMAIN_RUNNING && state != libvirt.DOMAIN_BLOCKED {
+		return SandboxMetrics{}, SandboxInterruptedError{Reason: fmt.Sprintf("domain %s not running (state=%d)", domainName, state)}
+	}
+
+	additional := map[string]any{
+		"state": state,
+	}
+
+	return SandboxMetrics{
+		CPUPercent:        0,
+		MemoryBytes:       uint64(info.Memory) * 1024,
+		GuestHeartbeatOK:  false,
+		AdditionalMetrics: additional,
+	}, nil
 }

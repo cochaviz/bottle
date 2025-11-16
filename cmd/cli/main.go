@@ -18,6 +18,8 @@ import (
 	"cochaviz/mime/internal/setup"
 )
 
+const defaultLogLevel = "warning"
+
 func main() {
 	var levelVar slog.LevelVar
 	levelVar.Set(slog.LevelInfo)
@@ -35,7 +37,7 @@ func main() {
 func newRootCommand(logger *slog.Logger, levelVar *slog.LevelVar) *cobra.Command {
 	setup.SetLogger(logger.With("component", "setup"))
 
-	logLevel := "info"
+	logLevel := defaultLogLevel
 
 	root := &cobra.Command{
 		Use:           "mime",
@@ -44,7 +46,7 @@ func newRootCommand(logger *slog.Logger, levelVar *slog.LevelVar) *cobra.Command
 		SilenceUsage:  true,
 	}
 
-	root.PersistentFlags().StringVar(&logLevel, "log-level", logLevel, "Set log verbosity (debug, info, warn, error)")
+	root.PersistentFlags().StringVar(&logLevel, "log-level", defaultLogLevel, "Set log verbosity (debug, info, warning, error)")
 	root.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
 		level, err := parseLogLevel(logLevel)
 		if err != nil {
@@ -183,7 +185,7 @@ func newSandboxRunCommand(logger *slog.Logger) *cobra.Command {
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 
-			worker := sandbox.NewSandboxWorker(driver, lease)
+			worker := sandbox.NewSandboxWorker(driver, lease, logger)
 
 			cmdLogger.Info("starting sandbox worker; press Ctrl+C to stop")
 			if err := worker.Run(ctx); err != nil {

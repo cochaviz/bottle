@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"text/template"
 
@@ -60,7 +61,7 @@ func ensureRunDirectory(dir string) (string, error) {
 	return abs, nil
 }
 
-func createDiskOverlay(baseImagePath, overlayPath string) (string, string, error) {
+func createDiskOverlay(baseImagePath, overlayPath, backingFormat string) (string, string, error) {
 	if baseImagePath == "" {
 		return "", "", errors.New("base image path is empty")
 	}
@@ -92,7 +93,14 @@ func createDiskOverlay(baseImagePath, overlayPath string) (string, string, error
 		return "", "", fmt.Errorf("qemu-img not found in PATH: %w", err)
 	}
 
-	cmd := exec.Command(qemuImg, "create", "-f", "qcow2", "-b", baseAbs, overlayAbs)
+	// I think we might be able to do this without the backingFormat, but I'm not sure
+	args := []string{qemuImg, "create", "-f", "qcow2", "-b", baseAbs}
+	if backingFormat != "" {
+		args = append(args, "-F", backingFormat)
+	}
+	args = append(args, overlayAbs)
+
+	cmd := exec.Command(args[0], args[1:]...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", "", fmt.Errorf("create overlay with qemu-img: %w (output: %s)", err, strings.TrimSpace(string(output)))
@@ -229,10 +237,39 @@ func isLibvirtError(err error, codes ...libvirt.ErrorNumber) bool {
 	if !errors.As(err, &libvirtErr) {
 		return false
 	}
-	for _, code := range codes {
-		if libvirtErr.Code == code {
-			return true
+
+	return slices.Contains(codes, libvirtErr.Code)
+}
+
+func detectDiskFormat(image SandboxImage, basePath string) string {
+	if format := normalizeDiskFormat(image.ImageArtifact.ContentType); format != "" {
+		return format
+	}
+	if image.ImageArtifact.Metadata != nil {
+		if value, ok := image.ImageArtifact.Metadata["disk_format"].(string); ok {
+			if format := normalizeDiskFormat(value); format != "" {
+				return format
+			}
 		}
 	}
-	return false
+
+	switch strings.ToLower(filepath.Ext(basePath)) {
+	case ".qcow2":
+		return "qcow2"
+	case ".raw":
+		return "raw"
+	default:
+		return ""
+	}
+}
+
+func normalizeDiskFormat(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "qcow", "qcow2":
+		return "qcow2"
+	case "raw":
+		return "raw"
+	default:
+		return ""
+	}
 }

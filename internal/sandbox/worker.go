@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"time"
 )
 
 // SandboxWorker handles the execution, analysis, instrumentation
@@ -12,13 +14,16 @@ import (
 type SandboxWorker struct {
 	lease  SandboxLease
 	driver SandboxDriver
+
+	logger *slog.Logger
 }
 
 // NewSandboxWorker creates a new SandboxWorker instance with the provided driver and lease.
-func NewSandboxWorker(driver SandboxDriver, lease SandboxLease) *SandboxWorker {
+func NewSandboxWorker(driver SandboxDriver, lease SandboxLease, logger *slog.Logger) *SandboxWorker {
 	return &SandboxWorker{
 		driver: driver,
 		lease:  lease,
+		logger: logger,
 	}
 }
 
@@ -32,8 +37,8 @@ func (w *SandboxWorker) Run(ctx context.Context) (err error) {
 	}
 
 	defer func() {
-		if destroyErr := w.driver.Destroy(w.lease, true); destroyErr != nil {
-			err = errors.Join(err, fmt.Errorf("destroy sandbox: %w", destroyErr))
+		if releaseError := w.driver.Release(w.lease, true); releaseError != nil {
+			err = errors.Join(err, fmt.Errorf("destroy sandbox: %w", releaseError))
 		}
 	}()
 
@@ -43,12 +48,22 @@ func (w *SandboxWorker) Run(ctx context.Context) (err error) {
 	}
 	w.lease = updatedLease
 
-	// Wait until the context is cancelled.
-	select {
-	case <-ctx.Done():
-		if errors.Is(ctx.Err(), context.Canceled) {
-			return nil
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			if errors.Is(ctx.Err(), context.Canceled) {
+				return nil
+			}
+			return ctx.Err()
+		case <-ticker.C:
+			// Check whether the sandbox is still active
+			if _, err := w.driver.CollectMetrics(w.lease); err != nil {
+				w.logger.Error("Failed to collect metrics", "error", err)
+				return err
+			}
 		}
-		return ctx.Err()
 	}
 }

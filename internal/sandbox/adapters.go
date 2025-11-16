@@ -1,5 +1,7 @@
 package sandbox
 
+import "fmt"
+
 // SnapshotHandle identifies a driver-created snapshot and any additional metadata
 // required to restore or manage it.
 type SnapshotHandle struct {
@@ -7,8 +9,8 @@ type SnapshotHandle struct {
 	Metadata map[string]any
 }
 
-// LeaseMetrics captures runtime telemetry reported by the sandbox driver.
-type LeaseMetrics struct {
+// SandboxMetrics captures runtime telemetry reported by the sandbox driver.
+type SandboxMetrics struct {
 	CPUPercent        float64
 	MemoryBytes       uint64
 	GuestHeartbeatOK  bool
@@ -26,6 +28,14 @@ type SandboxDriver interface {
 	Pause(lease SandboxLease, reason string) (SandboxLease, error)
 	Resume(lease SandboxLease) (SandboxLease, error)
 	// Snapshot(lease SandboxLease, label string) (SnapshotHandle, error) // currently, we stream network data so we don't support snapshots now
-	Destroy(lease SandboxLease, force bool) error
-	CollectMetrics(lease SandboxLease) (LeaseMetrics, error)
+	Release(lease SandboxLease, force bool) error
+	CollectMetrics(lease SandboxLease) (SandboxMetrics, error)
+}
+
+type SandboxInterruptedError struct {
+	Reason string
+}
+
+func (e SandboxInterruptedError) Error() string {
+	return fmt.Sprintf("sandbox interrupted: %s", e.Reason)
 }
