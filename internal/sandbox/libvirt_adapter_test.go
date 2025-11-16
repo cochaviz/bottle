@@ -47,8 +47,8 @@ func TestLibvirtDriverAcquireCreatesWorkspace(t *testing.T) {
 	if lease.ID != spec.DomainName {
 		t.Fatalf("lease ID = %q, want %q", lease.ID, spec.DomainName)
 	}
-	if lease.StartTime.IsZero() {
-		t.Fatalf("StartTime not set")
+	if !lease.StartTime.IsZero() {
+		t.Fatalf("StartTime should be zero before start")
 	}
 
 	domainXMLPath := runtimePath(t, lease.RuntimeConfig, "domain_xml")

@@ -12,6 +12,7 @@ import (
 	"cochaviz/mime/internal/artifacts"
 
 	"github.com/google/uuid"
+	libvirt "libvirt.org/go/libvirt"
 )
 
 var _ SandboxDriver = &LibvirtDriver{}
@@ -118,13 +119,74 @@ func (d *LibvirtDriver) Acquire(spec SandboxLeaseSpecification) (SandboxLease, e
 
 	return SandboxLease{
 		ID:            leaseID,
-		StartTime:     time.Now().UTC(),
 		Specification: spec,
 		SandboxState:  SandboxPending,
 		RunDir:        runDir,
 		RuntimeConfig: runtimeConfig,
 		Metadata:      metadata,
 	}, nil
+}
+
+func (d *LibvirtDriver) Start(lease SandboxLease) (SandboxLease, error) {
+	domainXMLPath, err := runtimeString(lease.RuntimeConfig, "domain_xml")
+	if err != nil {
+		return lease, err
+	}
+	connectionURI, err := runtimeString(lease.RuntimeConfig, "connection_uri")
+	if err != nil {
+		return lease, err
+	}
+	domainName, err := runtimeString(lease.RuntimeConfig, "domain_name")
+	if err != nil {
+		return lease, err
+	}
+
+	logger := d.logger().With(
+		"domain", domainName,
+		"lease_id", lease.ID,
+	)
+
+	xmlPayload, err := os.ReadFile(domainXMLPath)
+	if err != nil {
+		return lease, fmt.Errorf("read domain definition: %w", err)
+	}
+
+	conn, err := libvirt.NewConnect(connectionURI)
+	if err != nil {
+		return lease, fmt.Errorf("open libvirt connection %s: %w", connectionURI, err)
+	}
+	defer conn.Close()
+
+	var domain *libvirt.Domain
+	domain, err = conn.LookupDomainByName(domainName)
+	if err != nil {
+		if !isLibvirtNotFound(err) {
+			return lease, fmt.Errorf("lookup domain %s: %w", domainName, err)
+		}
+		domain, err = conn.DomainDefineXML(string(xmlPayload))
+		if err != nil {
+			return lease, fmt.Errorf("define domain %s: %w", domainName, err)
+		}
+	}
+	defer domain.Free()
+
+	state, _, err := domain.GetState()
+	if err != nil {
+		return lease, fmt.Errorf("query domain state: %w", err)
+	}
+
+	if state != libvirt.DOMAIN_RUNNING && state != libvirt.DOMAIN_BLOCKED {
+		if err := domain.Create(); err != nil {
+			return lease, fmt.Errorf("start domain %s: %w", domainName, err)
+		}
+		logger.Info("sandbox domain started")
+	} else {
+		logger.Info("sandbox domain already running", "state", state)
+	}
+
+	lease.SandboxState = SandboxRunning
+	lease.StartTime = time.Now().UTC()
+	return lease, nil
 }
 
 func (d *LibvirtDriver) Pause(lease SandboxLease, reason string) (SandboxLease, error) {
@@ -138,7 +200,56 @@ func (d *LibvirtDriver) Resume(lease SandboxLease) (SandboxLease, error) {
 }
 
 func (d *LibvirtDriver) Destroy(lease SandboxLease, force bool) error {
-	// Implementation details
+	connectionURI, err := runtimeString(lease.RuntimeConfig, "connection_uri")
+	if err != nil {
+		// If runtime configuration is missing, we can only clean up the run dir.
+		connectionURI = ""
+	}
+	domainName, err := runtimeString(lease.RuntimeConfig, "domain_name")
+	if err != nil {
+		domainName = ""
+	}
+
+	logger := d.logger().With(
+		"domain", domainName,
+		"lease_id", lease.ID,
+	)
+
+	if connectionURI != "" && domainName != "" {
+		conn, connErr := libvirt.NewConnect(connectionURI)
+		if connErr == nil {
+			defer conn.Close()
+
+			domain, lookupErr := conn.LookupDomainByName(domainName)
+			if lookupErr == nil {
+				defer domain.Free()
+
+				if err := domain.Destroy(); err != nil && !isLibvirtError(err, libvirt.ERR_OPERATION_INVALID, libvirt.ERR_NO_DOMAIN) {
+					logger.Error("failed to destroy domain", "error", err)
+					if !force {
+						return fmt.Errorf("destroy domain %s: %w", domainName, err)
+					}
+				}
+				if err := domain.Undefine(); err != nil && !isLibvirtError(err, libvirt.ERR_NO_DOMAIN) {
+					logger.Error("failed to undefine domain", "error", err)
+					if !force {
+						return fmt.Errorf("undefine domain %s: %w", domainName, err)
+					}
+				}
+			} else if !isLibvirtNotFound(lookupErr) && !force {
+				return fmt.Errorf("lookup domain %s: %w", domainName, lookupErr)
+			}
+		} else if !force {
+			return fmt.Errorf("open libvirt connection %s: %w", connectionURI, connErr)
+		}
+	}
+
+	if lease.RunDir != "" {
+		if err := os.RemoveAll(lease.RunDir); err != nil {
+			return fmt.Errorf("cleanup run directory %s: %w", lease.RunDir, err)
+		}
+	}
+	logger.Info("sandbox resources destroyed")
 	return nil
 }
 

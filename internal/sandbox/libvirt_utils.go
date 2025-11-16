@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"text/template"
+
+	libvirt "libvirt.org/go/libvirt"
 )
 
 type domainDiskAttachment struct {
@@ -193,4 +195,44 @@ func buildDomainTemplateData(name, overlayPath string, spec SandboxSpecification
 		Network:       networkName,
 		NetworkModel:  networkModel,
 	}, nil
+}
+
+func runtimeString(config map[string]any, key string) (string, error) {
+	if config == nil {
+		return "", fmt.Errorf("runtime config missing %s", key)
+	}
+	value, ok := config[key]
+	if !ok {
+		return "", fmt.Errorf("runtime config missing %s", key)
+	}
+
+	text, ok := value.(string)
+	if !ok {
+		return "", fmt.Errorf("runtime config %s must be a string", key)
+	}
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return "", fmt.Errorf("runtime config %s is empty", key)
+	}
+	return text, nil
+}
+
+func isLibvirtNotFound(err error) bool {
+	return isLibvirtError(err, libvirt.ERR_NO_DOMAIN)
+}
+
+func isLibvirtError(err error, codes ...libvirt.ErrorNumber) bool {
+	if err == nil {
+		return false
+	}
+	var libvirtErr libvirt.Error
+	if !errors.As(err, &libvirtErr) {
+		return false
+	}
+	for _, code := range codes {
+		if libvirtErr.Code == code {
+			return true
+		}
+	}
+	return false
 }

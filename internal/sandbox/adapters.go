@@ -21,6 +21,7 @@ type LeaseMetrics struct {
 // hypervisor-specific details.
 type SandboxDriver interface {
 	Acquire(spec SandboxLeaseSpecification) (SandboxLease, error)
+	Start(lease SandboxLease) (SandboxLease, error)
 	// Attach(lease SandboxLease) (SandboxLease, error) // we don't run interactively so we don't need this
 	Pause(lease SandboxLease, reason string) (SandboxLease, error)
 	Resume(lease SandboxLease) (SandboxLease, error)
