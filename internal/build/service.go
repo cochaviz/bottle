@@ -2,13 +2,13 @@ package build
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"cochaviz/mime/internal/artifacts"
 	"cochaviz/mime/internal/sandbox"
-
-	"github.com/google/uuid"
 )
 
 type BuildService struct {
@@ -83,8 +83,14 @@ func (s *BuildService) Run(request *BuildRequest) error {
 		return err
 	}
 
+	// ImageID needs to be derived in order to link it to the reference specification
+	imageID := deriveImageID(
+		requestedSpec.SandboxSpecification.ID,
+		requestedSpec.SandboxSpecification.Version,
+	)
+
 	image := sandbox.SandboxImage{
-		ID:                     uuid.New().String(),
+		ID:                     imageID,
 		ReferenceSpecification: requestedSpec.SandboxSpecification,
 		ImageArtifact:          imageArtifact,
 		CreatedAt:              time.Now(),
@@ -105,6 +111,25 @@ func (s BuildService) logger() *slog.Logger {
 		return s.Logger
 	}
 	return slog.Default()
+}
+
+func deriveImageID(specID, version string) string {
+	specID = strings.TrimSpace(specID)
+	version = strings.TrimSpace(version)
+	timestamp := time.Now().UTC().Format("20060102-150405")
+
+	switch {
+	case specID != "" && version != "":
+		return fmt.Sprintf("%s-%s-%s", specID, sanitizeID(version), timestamp)
+	case specID != "":
+		return fmt.Sprintf("%s-%s", specID, timestamp)
+	default:
+		return timestamp
+	}
+}
+
+func sanitizeID(value string) string {
+	return strings.NewReplacer(" ", "_", "/", "_", "\\", "_").Replace(value)
 }
 
 func storeLocalArtifacts(buildArtifacts []artifacts.Artifact, repository artifacts.ArtifactStore) ([]artifacts.Artifact, error) {
