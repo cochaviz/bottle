@@ -185,6 +185,7 @@ func RunAnalysis(
 	imageDir string,
 	runDir string,
 	libvirtConnectionURI string,
+	overrideArch string,
 	sampleArgs []string,
 	logger *slog.Logger,
 ) error {
@@ -235,6 +236,7 @@ func RunAnalysis(
 		driver,
 		imageRepository,
 		c2Address,
+		overrideArch,
 		sample,
 		sampleArgs,
 	)

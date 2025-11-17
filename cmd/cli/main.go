@@ -236,6 +236,7 @@ func newAnalysisRunCommand(logger *slog.Logger) *cobra.Command {
 		runDir        string
 		connectionURI string
 		c2Address     string
+		overrideArch  string
 		sampleArgs    []string
 	)
 
@@ -272,7 +273,7 @@ func newAnalysisRunCommand(logger *slog.Logger) *cobra.Command {
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 
-			if err := config.RunAnalysis(ctx, absSample, c2Address, imageDir, runDir, connectionURI, flatSampleArgs, cmdLogger); err != nil {
+			if err := config.RunAnalysis(ctx, absSample, c2Address, imageDir, runDir, connectionURI, overrideArch, flatSampleArgs, cmdLogger); err != nil {
 				return err
 			}
 
@@ -285,6 +286,7 @@ func newAnalysisRunCommand(logger *slog.Logger) *cobra.Command {
 	cmd.Flags().StringVar(&runDir, "run-dir", config.DefaultRunDir, "Directory to store sandbox run state")
 	cmd.Flags().StringVar(&connectionURI, "connect-uri", config.DefaultConnectionURI, "Libvirt connection URI")
 	cmd.Flags().StringVar(&c2Address, "c2", "", "Optional C2 address to inject into the analysis")
+	cmd.Flags().StringVar(&overrideArch, "arch", "", "Override sample architecture (e.g., x86_64, arm64)")
 	cmd.Flags().StringArrayVar(&sampleArgs, "sample-args", nil, "Argument to pass to the sample; repeat flag to add additional args")
 
 	return cmd

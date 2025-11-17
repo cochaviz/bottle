@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"path"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -28,9 +29,10 @@ type AnalysisWorker struct {
 
 	imageRepo sandbox.ImageRepository
 
-	c2Ip       string
-	sample     Sample
-	sampleArgs []string
+	c2Ip         string
+	archOverride string
+	sample       Sample
+	sampleArgs   []string
 }
 
 func NewAnalysisWorker(
@@ -38,24 +40,30 @@ func NewAnalysisWorker(
 	driver sandbox.SandboxDriver,
 	imageRepo sandbox.ImageRepository,
 	c2Ip string,
+	archOverride string,
 	sample Sample,
 	sampleArgs []string,
 ) *AnalysisWorker {
 	return &AnalysisWorker{
-		logger:     logger,
-		driver:     driver,
-		imageRepo:  imageRepo,
-		c2Ip:       c2Ip,
-		sample:     sample,
-		sampleArgs: append([]string(nil), sampleArgs...),
+		logger:       logger,
+		driver:       driver,
+		imageRepo:    imageRepo,
+		c2Ip:         c2Ip,
+		archOverride: strings.TrimSpace(archOverride),
+		sample:       sample,
+		sampleArgs:   append([]string(nil), sampleArgs...),
 	}
 }
 
 func (w *AnalysisWorker) Run(ctx context.Context) error {
-	arch := determineSampleArchitecture(w.sample)
+	arch := w.archOverride
+	if arch == "" {
+		predicted_arch, err := determineSampleArchitecture(w.sample)
 
-	if arch == "unknown" {
-		return fmt.Errorf("unable to determine architecture for %q", w.sample.Name)
+		if err != nil {
+			return fmt.Errorf("unable to determine architecture for %q: %w", w.sample.Name, err)
+		}
+		arch = predicted_arch
 	}
 
 	sandboxImages, err := w.imageRepo.FilterByArchitecture(arch)
@@ -75,6 +83,17 @@ func (w *AnalysisWorker) Run(ctx context.Context) error {
 	})
 	if err != nil {
 		return fmt.Errorf("acquire sandbox lease: %w", err)
+	}
+
+	cleanupWhitelist, err := w.configureC2Whitelist(lease)
+	if err != nil {
+		if releaseErr := w.driver.Release(lease, true); releaseErr != nil {
+			w.logger.Error("failed to release sandbox after whitelist error", "error", releaseErr)
+		}
+		return err
+	}
+	if cleanupWhitelist != nil {
+		defer cleanupWhitelist()
 	}
 
 	sandboxWorker := sandbox.NewSandboxWorker(w.driver, lease, w.logger)
@@ -154,4 +173,22 @@ func (w *AnalysisWorker) dispatchSampleExecution(ctx context.Context, worker *sa
 		case <-ctx.Done():
 		}
 	}()
+}
+
+func (w *AnalysisWorker) configureC2Whitelist(lease sandbox.SandboxLease) (func(), error) {
+	ip := strings.TrimSpace(w.c2Ip)
+	if ip == "" {
+		return nil, nil
+	}
+
+	cleanup, err := WhitelistIP(lease, ip)
+	if err != nil {
+		return nil, fmt.Errorf("whitelist C2 IP: %w", err)
+	}
+
+	return func() {
+		if err := cleanup(); err != nil {
+			w.logger.Error("failed to remove C2 whitelist", "error", err)
+		}
+	}, nil
 }

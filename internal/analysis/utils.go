@@ -1,5 +1,5 @@
 package analysis
 
-func determineSampleArchitecture(sample Sample) string {
-	return "x86_64"
+func determineSampleArchitecture(sample Sample) (string, error) {
+	return "x86_64", nil
 }

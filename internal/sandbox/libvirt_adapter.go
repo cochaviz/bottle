@@ -16,7 +16,7 @@ import (
 	libvirt "libvirt.org/go/libvirt"
 )
 
-var _ SandboxDriver = &LibvirtDriver{}
+var _ SandboxDriver = NewLibvirtDriver()
 
 type LibvirtDriver struct {
 	ConnectionURI string
