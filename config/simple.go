@@ -187,6 +187,7 @@ func RunAnalysis(
 	libvirtConnectionURI string,
 	overrideArch string,
 	sampleArgs []string,
+	instrumentations []analysis.Instrumentation,
 	logger *slog.Logger,
 ) error {
 	logger = logging.Ensure(logger).With("component", "config.simple", "operation", "analysis")
@@ -239,6 +240,7 @@ func RunAnalysis(
 		overrideArch,
 		sample,
 		sampleArgs,
+		instrumentations,
 	)
 
 	logger.Info("starting analysis worker", "sample", sample.Name, "c2", c2Address)

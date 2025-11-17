@@ -1,0 +1,2 @@
+cli:
+    command: tcpdump -i {{ .VmInterface }} -w "/home/john/research/mime/test.pcap" host {{ .VmIp }} and host {{ .C2Ip }}

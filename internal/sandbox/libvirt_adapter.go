@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	_ "embed"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -227,6 +228,7 @@ func (d *LibvirtDriver) Acquire(spec SandboxLeaseSpecification) (SandboxLease, e
 		"domain_name": domainName,
 		"image_id":    spec.SandboxImage.ID,
 		"vm_ip":       reservedLease.IP.String(),
+		"vm_mac":      strings.ToLower(reservedLease.MAC),
 	}
 
 	logger.Info("sandbox workspace prepared")
@@ -313,6 +315,9 @@ func (d *LibvirtDriver) Start(lease SandboxLease) (SandboxLease, error) {
 	if err := d.runSetupScripts(domain, setupEntries, setupMountPath, logger); err != nil {
 		return lease, err
 	}
+	if err := d.attachVMInterfaceMetadata(domain, &lease); err != nil {
+		logger.Warn("determine vm interface failed", "error", err)
+	}
 
 	lease.SandboxState = SandboxRunning
 	lease.StartTime = time.Now().UTC()
@@ -336,6 +341,28 @@ func (d *LibvirtDriver) runSetupScripts(domain *libvirt.Domain, entries []setupF
 		logger.Info("setup script executed", "script", entry.FileName)
 	}
 
+	return nil
+}
+
+func (d *LibvirtDriver) attachVMInterfaceMetadata(domain *libvirt.Domain, lease *SandboxLease) error {
+	if lease == nil {
+		return errors.New("sandbox lease is nil")
+	}
+	if domain == nil {
+		return errors.New("domain handle is nil")
+	}
+	mac, err := runtimeString(lease.RuntimeConfig, "dhcp_mac")
+	if err != nil {
+		return err
+	}
+	iface, err := hostInterfaceForMAC(domain, mac)
+	if err != nil {
+		return err
+	}
+	if lease.Metadata == nil {
+		lease.Metadata = map[string]any{}
+	}
+	lease.Metadata["vm_interface"] = iface
 	return nil
 }
 

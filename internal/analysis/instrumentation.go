@@ -8,10 +8,10 @@ import (
 type InstrumentationVariableName = string
 
 const (
-	InstrumentationC2Address   = "c2_address"
-	InstrumentationVMIP        = "vm_ip"
-	InstrumentationVMInterface = "vm_interface"
-	InstrumentationSampleName  = "sample_name"
+	InstrumentationC2Address   = "C2Ip"
+	InstrumentationVMIP        = "VmIp"
+	InstrumentationVMInterface = "VmInterface"
+	InstrumentationSampleName  = "SampleName"
 )
 
 type InstrumentationVariable struct {

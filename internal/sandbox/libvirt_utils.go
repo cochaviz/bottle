@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"bytes"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -273,4 +274,47 @@ func normalizeDiskFormat(value string) string {
 	default:
 		return ""
 	}
+}
+
+type domainInterfaceTarget struct {
+	MAC struct {
+		Address string `xml:"address,attr"`
+	} `xml:"mac"`
+	Target struct {
+		Dev string `xml:"dev,attr"`
+	} `xml:"target"`
+}
+
+type domainDevices struct {
+	Interfaces []domainInterfaceTarget `xml:"interface"`
+}
+
+type domainXMLDesc struct {
+	Devices domainDevices `xml:"devices"`
+}
+
+func hostInterfaceForMAC(domain *libvirt.Domain, mac string) (string, error) {
+	if domain == nil {
+		return "", errors.New("domain handle is nil")
+	}
+	xmlDesc, err := domain.GetXMLDesc(0)
+	if err != nil {
+		return "", fmt.Errorf("get domain XML: %w", err)
+	}
+	var desc domainXMLDesc
+	if err := xml.Unmarshal([]byte(xmlDesc), &desc); err != nil {
+		return "", fmt.Errorf("parse domain XML: %w", err)
+	}
+	targetMAC := strings.ToLower(strings.TrimSpace(mac))
+	for _, iface := range desc.Devices.Interfaces {
+		if strings.ToLower(strings.TrimSpace(iface.MAC.Address)) != targetMAC {
+			continue
+		}
+		dev := strings.TrimSpace(iface.Target.Dev)
+		if dev == "" {
+			return "", fmt.Errorf("interface target missing for mac %s", mac)
+		}
+		return dev, nil
+	}
+	return "", fmt.Errorf("interface for mac %s not found in domain XML", mac)
 }

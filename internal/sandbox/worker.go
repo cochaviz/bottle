@@ -50,7 +50,8 @@ type SandboxWorker struct {
 
 	logger *slog.Logger
 
-	signals chan SandboxWorkerSignal
+	signals       chan SandboxWorkerSignal
+	startNotifier chan struct{}
 }
 
 // NewSandboxWorker creates a new SandboxWorker instance with the provided driver and lease.
@@ -61,6 +62,10 @@ func NewSandboxWorker(driver SandboxDriver, lease SandboxLease, logger *slog.Log
 		logger:  logger,
 		signals: make(chan SandboxWorkerSignal, 8),
 	}
+}
+
+func (w *SandboxWorker) SetStartNotifier(ch chan struct{}) {
+	w.startNotifier = ch
 }
 
 // SignalChannel returns a send-only channel that callers can use to control the worker.
@@ -88,6 +93,10 @@ func (w *SandboxWorker) Run(ctx context.Context) (err error) {
 		return err
 	}
 	w.lease = updatedLease
+	if w.startNotifier != nil {
+		close(w.startNotifier)
+		w.startNotifier = nil
+	}
 
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()

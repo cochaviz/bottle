@@ -3,6 +3,7 @@ package analysis
 import (
 	"cochaviz/mime/internal/sandbox"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"path"
@@ -29,10 +30,11 @@ type AnalysisWorker struct {
 
 	imageRepo sandbox.ImageRepository
 
-	c2Ip         string
-	archOverride string
-	sample       Sample
-	sampleArgs   []string
+	c2Ip            string
+	archOverride    string
+	sample          Sample
+	sampleArgs      []string
+	instrumentation []Instrumentation
 }
 
 func NewAnalysisWorker(
@@ -43,15 +45,17 @@ func NewAnalysisWorker(
 	archOverride string,
 	sample Sample,
 	sampleArgs []string,
+	instrumentation []Instrumentation,
 ) *AnalysisWorker {
 	return &AnalysisWorker{
-		logger:       logger,
-		driver:       driver,
-		imageRepo:    imageRepo,
-		c2Ip:         c2Ip,
-		archOverride: strings.TrimSpace(archOverride),
-		sample:       sample,
-		sampleArgs:   append([]string(nil), sampleArgs...),
+		logger:          logger,
+		driver:          driver,
+		imageRepo:       imageRepo,
+		c2Ip:            c2Ip,
+		archOverride:    strings.TrimSpace(archOverride),
+		sample:          sample,
+		sampleArgs:      append([]string(nil), sampleArgs...),
+		instrumentation: append([]Instrumentation(nil), instrumentation...),
 	}
 }
 
@@ -96,7 +100,18 @@ func (w *AnalysisWorker) Run(ctx context.Context) error {
 		defer cleanupWhitelist()
 	}
 
+	releaseLease := func() {
+		if err := w.driver.Release(lease, true); err != nil {
+			w.logger.Error("failed to release sandbox lease", "error", err)
+		}
+	}
+
 	sandboxWorker := sandbox.NewSandboxWorker(w.driver, lease, w.logger)
+
+	startCh := make(chan struct{})
+	if len(w.instrumentation) > 0 {
+		sandboxWorker.SetStartNotifier(startCh)
+	}
 
 	analysisCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -105,6 +120,26 @@ func (w *AnalysisWorker) Run(ctx context.Context) error {
 	go func() {
 		workerErr <- sandboxWorker.Run(analysisCtx)
 	}()
+
+	if len(w.instrumentation) > 0 {
+		select {
+		case <-startCh:
+		case err := <-workerErr:
+			return fmt.Errorf("sandbox worker failed: %w", err)
+		case <-analysisCtx.Done():
+			return analysisCtx.Err()
+		}
+
+		instCleanup, err := w.startInstrumentation(analysisCtx, lease)
+		if err != nil {
+			releaseLease()
+			return err
+		}
+		if instCleanup != nil {
+			defer instCleanup()
+			w.logger.Info("instrumentation started", "count", len(w.instrumentation))
+		}
+	}
 
 	w.dispatchSampleExecution(analysisCtx, sandboxWorker, sampleDir)
 
@@ -191,4 +226,71 @@ func (w *AnalysisWorker) configureC2Whitelist(lease sandbox.SandboxLease) (func(
 			w.logger.Error("failed to remove C2 whitelist", "error", err)
 		}
 	}, nil
+}
+
+func (w *AnalysisWorker) instrumentationVariables(ctx context.Context, lease sandbox.SandboxLease) ([]InstrumentationVariable, error) {
+	vmIP, err := leaseVMIP(lease)
+	if err != nil {
+		return nil, err
+	}
+	vmInterface, err := leaseVMInterface(lease)
+	if err != nil {
+		return nil, err
+	}
+	var vars []InstrumentationVariable
+	vars = append(vars, InstrumentationVariable{Name: InstrumentationSampleName, Value: w.sample.Name})
+	vars = append(vars, InstrumentationVariable{Name: InstrumentationVMInterface, Value: vmInterface})
+	vars = append(vars, InstrumentationVariable{Name: InstrumentationVMIP, Value: vmIP})
+	if ip := strings.TrimSpace(w.c2Ip); ip != "" {
+		vars = append(vars, InstrumentationVariable{Name: InstrumentationC2Address, Value: ip})
+	}
+	return vars, nil
+}
+
+func (w *AnalysisWorker) startInstrumentation(ctx context.Context, lease sandbox.SandboxLease) (func(), error) {
+	if len(w.instrumentation) == 0 {
+		return nil, nil
+	}
+	vars, err := w.instrumentationVariables(ctx, lease)
+	if err != nil {
+		return nil, err
+	}
+	for _, inst := range w.instrumentation {
+		if inst == nil {
+			continue
+		}
+		if err := inst.Start(ctx, lease, vars...); err != nil {
+			return nil, fmt.Errorf("start instrumentation: %w", err)
+		}
+	}
+	cleanup := func() {
+		for _, inst := range w.instrumentation {
+			if inst == nil {
+				continue
+			}
+			if err := inst.Close(); err != nil {
+				w.logger.Warn("instrumentation close failed", "error", err)
+			}
+		}
+	}
+	return cleanup, nil
+}
+
+func leaseVMInterface(lease sandbox.SandboxLease) (string, error) {
+	if lease.Metadata == nil {
+		return "", errors.New("sandbox lease metadata missing vm_interface")
+	}
+	value, ok := lease.Metadata["vm_interface"]
+	if !ok {
+		return "", errors.New("sandbox lease missing vm_interface metadata")
+	}
+	iface, ok := value.(string)
+	if !ok {
+		return "", errors.New("sandbox lease vm_interface metadata must be a string")
+	}
+	iface = strings.TrimSpace(iface)
+	if iface == "" {
+		return "", errors.New("sandbox lease vm_interface metadata is empty")
+	}
+	return iface, nil
 }
