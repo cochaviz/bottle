@@ -184,17 +184,27 @@ func removeDHCPHost(network *libvirt.Network, mac, ip string) error {
 	flags := libvirt.NETWORK_UPDATE_AFFECT_LIVE | libvirt.NETWORK_UPDATE_AFFECT_CONFIG
 	if strings.TrimSpace(mac) != "" {
 		hostXML := fmt.Sprintf("<host mac='%s'/>", mac)
-		if err := updateNetworkSection(network, libvirt.NETWORK_UPDATE_COMMAND_DELETE, libvirt.NETWORK_SECTION_IP_DHCP_HOST, -1, hostXML, flags); err != nil && !isLibvirtNotFound(err) {
+		err := updateNetworkSection(network, libvirt.NETWORK_UPDATE_COMMAND_DELETE, libvirt.NETWORK_SECTION_IP_DHCP_HOST, -1, hostXML, flags)
+		if err != nil && !isIgnorableDHCPDeleteError(err) {
 			return fmt.Errorf("remove DHCP host (mac): %w", err)
 		}
 	}
 	if strings.TrimSpace(ip) != "" {
 		hostXML := fmt.Sprintf("<host ip='%s'/>", ip)
-		if err := updateNetworkSection(network, libvirt.NETWORK_UPDATE_COMMAND_DELETE, libvirt.NETWORK_SECTION_IP_DHCP_HOST, -1, hostXML, flags); err != nil && !isLibvirtNotFound(err) {
+		err := updateNetworkSection(network, libvirt.NETWORK_UPDATE_COMMAND_DELETE, libvirt.NETWORK_SECTION_IP_DHCP_HOST, -1, hostXML, flags)
+		if err != nil && !isIgnorableDHCPDeleteError(err) {
 			return fmt.Errorf("remove DHCP host (ip): %w", err)
 		}
 	}
 	return nil
+}
+
+func isIgnorableDHCPDeleteError(err error) bool {
+	return isLibvirtError(err,
+		libvirt.ERR_INVALID_ARG,
+		libvirt.ERR_NO_DOMAIN,
+		libvirt.ERR_OPERATION_INVALID,
+	)
 }
 
 func selectAvailableIP(ranges []ipRange, used map[string]struct{}) (net.IP, error) {
