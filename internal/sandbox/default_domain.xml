@@ -57,6 +57,9 @@
     </disk>
 {{ end }}
     <interface type='network'>
+{{ if .NetworkMAC }}
+      <mac address='{{ .NetworkMAC }}'/>
+{{ end }}
       <source network='{{ .Network }}'/>
       <model type='{{ .NetworkModel }}'/>
     </interface>

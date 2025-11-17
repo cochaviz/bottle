@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,6 +28,7 @@ func TestLibvirtDriverAcquireCreatesWorkspace(t *testing.T) {
 		BaseDir:       filepath.Join(t.TempDir(), "runs"),
 		Logger:        slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
+	driver.networkFactory = stubNetworkFactory()
 
 	spec := testLeaseSpecification(baseImage)
 	spec.DomainName = "sample-domain"
@@ -174,6 +176,7 @@ func TestLibvirtDriverAcquireMountsSampleAndSetupDirs(t *testing.T) {
 		BaseDir:       filepath.Join(t.TempDir(), "runs"),
 		Logger:        slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
+	driver.networkFactory = stubNetworkFactory()
 
 	sampleDir := t.TempDir()
 	sampleFile := filepath.Join(sampleDir, "sample.bin")
@@ -234,6 +237,39 @@ func TestLibvirtDriverAcquireMountsSampleAndSetupDirs(t *testing.T) {
 		t.Fatalf("sample disk missing sample payload")
 	}
 
+}
+
+func stubNetworkFactory() networkHandleFactory {
+	return func(uri, networkName string) (libvirtNetwork, func(), error) {
+		return &fakeNetworkDriver{}, func() {}, nil
+	}
+}
+
+type fakeNetworkDriver struct {
+	reserved net.IP
+}
+
+func (n *fakeNetworkDriver) Acquire(mac string) (NetworkLease, error) {
+	if n.reserved == nil {
+		n.reserved = net.ParseIP("10.0.0.100")
+	}
+	return NetworkLease{
+		MAC: mac,
+		IP:  n.reserved,
+	}, nil
+}
+
+func (n *fakeNetworkDriver) Release(lease NetworkLease) error {
+	return nil
+}
+
+func (n *fakeNetworkDriver) GetLeases() ([]NetworkLease, error) {
+	if n.reserved == nil {
+		return nil, nil
+	}
+	return []NetworkLease{
+		{MAC: "52:54:00:00:00:bb", IP: n.reserved},
+	}, nil
 }
 
 func testLeaseSpecification(imagePath string) SandboxLeaseSpecification {

@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,6 +22,8 @@ type LibvirtDriver struct {
 	ConnectionURI string
 	Logger        *slog.Logger
 	BaseDir       string
+
+	networkFactory networkHandleFactory
 }
 
 //go:embed default_domain.xml
@@ -28,6 +31,40 @@ var defaultDomain string
 
 func NewLibvirtDriver() *LibvirtDriver {
 	return &LibvirtDriver{}
+}
+
+type networkHandleFactory func(uri, networkName string) (libvirtNetwork, func(), error)
+
+func (d *LibvirtDriver) networkHandle(networkName string) (libvirtNetwork, func(), error) {
+	factory := d.networkFactory
+	if factory == nil {
+		factory = defaultNetworkHandleFactory
+	}
+	handle, cleanup, err := factory(d.ConnectionURI, networkName)
+	if err != nil {
+		return nil, nil, err
+	}
+	if cleanup == nil {
+		cleanup = func() {}
+	}
+	return handle, cleanup, nil
+}
+
+func defaultNetworkHandleFactory(uri, networkName string) (libvirtNetwork, func(), error) {
+	conn, err := libvirt.NewConnect(uri)
+	if err != nil {
+		return nil, nil, fmt.Errorf("open libvirt connection %s: %w", uri, err)
+	}
+	network, err := conn.LookupNetworkByName(networkName)
+	if err != nil {
+		conn.Close()
+		return nil, nil, fmt.Errorf("lookup network %s: %w", networkName, err)
+	}
+	cleanup := func() {
+		network.Free()
+		conn.Close()
+	}
+	return newLibvirtNetworkDriver(network), cleanup, nil
 }
 
 func (d *LibvirtDriver) Acquire(spec SandboxLeaseSpecification) (SandboxLease, error) {
@@ -91,6 +128,12 @@ func (d *LibvirtDriver) Acquire(spec SandboxLeaseSpecification) (SandboxLease, e
 	if err != nil {
 		return SandboxLease{}, fmt.Errorf("derive domain template data: %w", err)
 	}
+	networkName := strings.TrimSpace(domainData.Network)
+	if networkName == "" {
+		return SandboxLease{}, fmt.Errorf("sandbox network is not configured")
+	}
+	macAddress := generateSandboxMAC(leaseID)
+	domainData.NetworkMAC = macAddress
 
 	setupEntries, err := computeSetupFileEntries(refSpec.SetupFiles)
 	if err != nil {
@@ -134,6 +177,29 @@ func (d *LibvirtDriver) Acquire(spec SandboxLeaseSpecification) (SandboxLease, e
 		logger.Debug("prepared sample disk", "path", sampleImage)
 	}
 
+	network, releaseNetwork, err := d.networkHandle(networkName)
+	if err != nil {
+		return SandboxLease{}, err
+	}
+	defer releaseNetwork()
+
+	var reservedLease NetworkLease
+	reservationActive := false
+	success := false
+	defer func() {
+		if reservationActive && !success {
+			if err := network.Release(reservedLease); err != nil {
+				d.logger().Error("rollback DHCP reservation failed", "error", err, "network", networkName, "mac", macAddress, "ip", reservedLease.IP)
+			}
+		}
+	}()
+
+	reservedLease, err = network.Acquire(macAddress)
+	if err != nil {
+		return SandboxLease{}, fmt.Errorf("reserve DHCP lease: %w", err)
+	}
+	reservationActive = true
+
 	domainXML, err := renderDomainXML(defaultDomain, domainData)
 	if err != nil {
 		return SandboxLease{}, fmt.Errorf("render domain definition: %w", err)
@@ -151,24 +217,30 @@ func (d *LibvirtDriver) Acquire(spec SandboxLeaseSpecification) (SandboxLease, e
 		"overlay_path":   overlayAbs,
 		"base_image":     baseAbs,
 		"connection_uri": d.ConnectionURI,
+		"network_name":   networkName,
+		"dhcp_mac":       macAddress,
+		"dhcp_ip":        reservedLease.IP.String(),
 	}
 
 	metadata := map[string]any{
 		"driver":      "libvirt",
 		"domain_name": domainName,
 		"image_id":    spec.SandboxImage.ID,
+		"vm_ip":       reservedLease.IP.String(),
 	}
 
 	logger.Info("sandbox workspace prepared")
 
-	return SandboxLease{
+	lease := SandboxLease{
 		ID:            leaseID,
 		Specification: spec,
 		SandboxState:  SandboxPending,
 		RunDir:        runDir,
 		RuntimeConfig: runtimeConfig,
 		Metadata:      metadata,
-	}, nil
+	}
+	success = true
+	return lease, nil
 }
 
 func (d *LibvirtDriver) Start(lease SandboxLease) (SandboxLease, error) {
@@ -344,38 +416,74 @@ func (d *LibvirtDriver) Release(lease SandboxLease, force bool) error {
 	if err != nil {
 		domainName = ""
 	}
+	networkName, err := runtimeString(lease.RuntimeConfig, "network_name")
+	if err != nil {
+		networkName = ""
+	}
+	dhcpMAC, err := runtimeString(lease.RuntimeConfig, "dhcp_mac")
+	if err != nil {
+		dhcpMAC = ""
+	}
+	dhcpIP, err := runtimeString(lease.RuntimeConfig, "dhcp_ip")
+	if err != nil {
+		dhcpIP = ""
+	}
 
 	logger := d.logger().With(
 		"domain", domainName,
 		"lease_id", lease.ID,
 	)
 
-	if connectionURI != "" && domainName != "" {
-		conn, connErr := libvirt.NewConnect(connectionURI)
-		if connErr == nil {
-			defer conn.Close()
-
-			domain, lookupErr := conn.LookupDomainByName(domainName)
-			if lookupErr == nil {
-				defer domain.Free()
-
-				if err := domain.Destroy(); err != nil && !isLibvirtError(err, libvirt.ERR_OPERATION_INVALID, libvirt.ERR_NO_DOMAIN) {
-					logger.Error("failed to destroy domain", "error", err)
-					if !force {
-						return fmt.Errorf("destroy domain %s: %w", domainName, err)
-					}
-				}
-				if err := domain.Undefine(); err != nil && !isLibvirtError(err, libvirt.ERR_NO_DOMAIN) {
-					logger.Error("failed to undefine domain", "error", err)
-					if !force {
-						return fmt.Errorf("undefine domain %s: %w", domainName, err)
-					}
-				}
-			} else if !isLibvirtNotFound(lookupErr) && !force {
-				return fmt.Errorf("lookup domain %s: %w", domainName, lookupErr)
+	var conn *libvirt.Connect
+	if connectionURI != "" {
+		c, connErr := libvirt.NewConnect(connectionURI)
+		if connErr != nil {
+			if !force {
+				return fmt.Errorf("open libvirt connection %s: %w", connectionURI, connErr)
 			}
-		} else if !force {
-			return fmt.Errorf("open libvirt connection %s: %w", connectionURI, connErr)
+			logger.Error("failed to open libvirt connection", "error", connErr, "uri", connectionURI)
+		} else {
+			conn = c
+			defer conn.Close()
+		}
+	}
+
+	if conn != nil && domainName != "" {
+		domain, lookupErr := conn.LookupDomainByName(domainName)
+		if lookupErr == nil {
+			defer domain.Free()
+
+			if err := domain.Destroy(); err != nil && !isLibvirtError(err, libvirt.ERR_OPERATION_INVALID, libvirt.ERR_NO_DOMAIN) {
+				logger.Error("failed to destroy domain", "error", err)
+				if !force {
+					return fmt.Errorf("destroy domain %s: %w", domainName, err)
+				}
+			}
+			if err := domain.Undefine(); err != nil && !isLibvirtError(err, libvirt.ERR_NO_DOMAIN) {
+				logger.Error("failed to undefine domain", "error", err)
+				if !force {
+					return fmt.Errorf("undefine domain %s: %w", domainName, err)
+				}
+			}
+		} else if !isLibvirtNotFound(lookupErr) && !force {
+			return fmt.Errorf("lookup domain %s: %w", domainName, lookupErr)
+		}
+	}
+
+	if conn != nil && networkName != "" && (dhcpMAC != "" || dhcpIP != "") {
+		if network, lookupErr := conn.LookupNetworkByName(networkName); lookupErr == nil {
+			lease := NetworkLease{
+				MAC: strings.ToLower(strings.TrimSpace(dhcpMAC)),
+			}
+			if ip := net.ParseIP(strings.TrimSpace(dhcpIP)); ip != nil {
+				lease.IP = ip
+			}
+			if err := newLibvirtNetworkDriver(network).Release(lease); err != nil && !force {
+				return err
+			}
+			network.Free()
+		} else if !isLibvirtNotFound(lookupErr) && !force {
+			return fmt.Errorf("lookup network %s: %w", networkName, lookupErr)
 		}
 	}
 

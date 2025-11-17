@@ -38,6 +38,7 @@ type domainTemplateData struct {
 	CDBus         string
 	Network       string
 	NetworkModel  string
+	NetworkMAC    string
 }
 
 func (d *LibvirtDriver) logger() *slog.Logger {

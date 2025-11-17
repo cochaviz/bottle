@@ -263,6 +263,7 @@ func newAnalysisRunCommand(logger *slog.Logger) *cobra.Command {
 				return fmt.Errorf("sample path %s is a directory; provide a file", absSample)
 			}
 
+			flatSampleArgs := flattenSampleArgs(sampleArgs)
 			cmdLogger := logger.With("command", "analysis.run", "sample", filepath.Base(absSample))
 			if err := verifySetup(cmdLogger); err != nil {
 				return err
@@ -271,7 +272,7 @@ func newAnalysisRunCommand(logger *slog.Logger) *cobra.Command {
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 
-			if err := config.RunAnalysis(ctx, absSample, c2Address, imageDir, runDir, connectionURI, sampleArgs, cmdLogger); err != nil {
+			if err := config.RunAnalysis(ctx, absSample, c2Address, imageDir, runDir, connectionURI, flatSampleArgs, cmdLogger); err != nil {
 				return err
 			}
 
@@ -284,9 +285,19 @@ func newAnalysisRunCommand(logger *slog.Logger) *cobra.Command {
 	cmd.Flags().StringVar(&runDir, "run-dir", config.DefaultRunDir, "Directory to store sandbox run state")
 	cmd.Flags().StringVar(&connectionURI, "connect-uri", config.DefaultConnectionURI, "Libvirt connection URI")
 	cmd.Flags().StringVar(&c2Address, "c2", "", "Optional C2 address to inject into the analysis")
-	cmd.Flags().StringArrayVar(&sampleArgs, "sample-args", nil, "Argument to pass to the sample (repeat flag to add multiple)")
+	cmd.Flags().StringArrayVar(&sampleArgs, "sample-args", nil, "Argument to pass to the sample; repeat flag to add additional args")
 
 	return cmd
+}
+
+func flattenSampleArgs(args []string) []string {
+	var flat []string
+	for _, arg := range args {
+		for _, field := range strings.Fields(arg) {
+			flat = append(flat, field)
+		}
+	}
+	return flat
 }
 
 func newSetupCommand(logger *slog.Logger) *cobra.Command {
@@ -298,13 +309,22 @@ func newSetupCommand(logger *slog.Logger) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cmdLogger := logger.With("command", "setup")
 
+			alreadyConfigured := false
 			if err := setup.Verify(); err == nil {
+				alreadyConfigured = true
+			}
+
+			if alreadyConfigured && !clearConfig {
 				cmdLogger.Info("system already configured", "hint", "use 'mime setup --clear' to reinitialize")
 				os.Exit(0)
 			}
 
 			if clearConfig {
-				cmdLogger.Info("clearing existing configuration")
+				logArgs := []any{}
+				if alreadyConfigured {
+					logArgs = append(logArgs, "action", "reinitializing existing configuration")
+				}
+				cmdLogger.Info("clearing existing configuration", logArgs...)
 				if err := setup.ClearConfig(); err != nil {
 					cmdLogger.Error("clear configuration failed", "error", err)
 					return fmt.Errorf("clear configuration: %w", err)
