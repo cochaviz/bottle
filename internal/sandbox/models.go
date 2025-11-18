@@ -1,7 +1,7 @@
 package sandbox
 
 import (
-	"cochaviz/mime/internal/artifacts"
+	"cochaviz/bottle/internal/artifacts"
 	"time"
 )
 
@@ -45,61 +45,74 @@ type RunProfile struct {
 
 // SandboxSpec is a declarative description of a sandbox base image.
 type SandboxSpecification struct {
-	ID            string
-	Version       string
-	OSRelease     string
+	ID        string
+	Version   string
+	OSRelease string
+
 	DomainProfile DomainProfile
 	RunProfile    RunProfile
-	Packages      []string
+
+	Packages []string
+
 	Hardening     map[string]any
 	NetworkLayout map[string]any
 	Metadata      map[string]any
+
+	SetupFiles []artifacts.Artifact
 }
 
 // SandboxImage is a record describing a built sandbox image.
 type SandboxImage struct {
 	ID            string
-	Specification SandboxSpecification
-	Image         artifacts.Artifact // Artifact representing the built sandbox image.
+	ImageArtifact artifacts.Artifact // Artifact representing the built sandbox image.
 	CreatedAt     time.Time
 
-	Metadata           map[string]any
-	CompanionArtifacts []artifacts.Artifact // Artifacts beside the image produced during the build process and necessary for the sandbox to function.
+	ReferenceSpecification SandboxSpecification // Specification used during the build process.
+	CompanionArtifacts     []artifacts.Artifact // Artifacts beside the image produced during the build process and necessary for the sandbox to function.
+
+	Metadata map[string]any
 }
 
-// StaticAnalysis represents the static analysis of a system.
-type StaticAnalysis struct {
-	// ...
-}
+type SandboxState = string
 
-// DynamicAnalysis represents the dynamic analysis of a system.
-type DynamicAnalysis struct {
-	// ...
-}
-
-type Sample struct {
-	ID       string
-	Name     string
-	Artifact string
-}
-
-type SandboxLeaseState = string
+const (
+	SandboxPending SandboxState = "pending"
+	SandboxRunning SandboxState = "running"
+	SandboxPaused  SandboxState = "paused"
+	SandboxStale   SandboxState = "stale"
+	SandboxStopped SandboxState = "stopped"
+)
 
 type SandboxLeaseSpecification struct {
-	SandboxSpecification SandboxSpecification
-	SandboxImage         SandboxImage
+	DomainName string // Domain name for the sandbox.
 
-	ttl time.Duration // Duration for which the lease is valid.
+	SampleDir string // Directory containing sample files to be mounted into the sandbox.
+
+	SandboxImage          SandboxImage
+	OverrideSpecification *SandboxSpecification // Specification used to override the image's specification (if provided)
 }
 
 type SandboxLease struct {
-	ID        int64
+	ID        string
 	StartTime time.Time
 	EndTime   time.Time
 
 	Specification SandboxLeaseSpecification
-	State         SandboxLeaseState
+	SandboxState  SandboxState
 
+	RunDir        string
 	RuntimeConfig map[string]any
 	Metadata      map[string]any
+}
+
+type SandboxCommand struct {
+	Path    string
+	Args    []string
+	Timeout time.Duration
+}
+
+type SandboxCommandResult struct {
+	Stdout   string
+	Stderr   string
+	ExitCode int
 }

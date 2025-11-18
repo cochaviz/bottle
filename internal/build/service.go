@@ -3,13 +3,13 @@ package build
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
-	"cochaviz/mime/internal/artifacts"
-	"cochaviz/mime/internal/sandbox"
-
-	"github.com/google/uuid"
+	"cochaviz/bottle/internal/artifacts"
+	"cochaviz/bottle/internal/sandbox"
 )
 
 type BuildService struct {
@@ -68,6 +68,14 @@ func (s *BuildService) Run(ctx context.Context, request *BuildRequest) error {
 		return err
 	}
 
+	setupArtifacts, err := storeLocalArtifacts(
+		requestedSpec.SandboxSpecification.SetupFiles,
+		s.ArtifactStore,
+	)
+	if err != nil {
+		return err
+	}
+
 	logger.Info("stored build artifacts",
 		"companion_artifacts", len(companionArtifacts),
 		"image_uri", buildOutput.DiskImage.URI,
@@ -87,13 +95,26 @@ func (s *BuildService) Run(ctx context.Context, request *BuildRequest) error {
 		return err
 	}
 
+	// ImageID needs to be derived in order to link it to the reference specification
+	imageID := deriveImageID(
+		requestedSpec.SandboxSpecification.ID,
+		requestedSpec.SandboxSpecification.Version,
+	)
+
+	refSpec := requestedSpec.SandboxSpecification
+	if len(setupArtifacts) > 0 {
+		refSpec.SetupFiles = cloneArtifactsList(setupArtifacts)
+	} else {
+		refSpec.SetupFiles = nil
+	}
+
 	image := sandbox.SandboxImage{
-		ID:                 uuid.New().String(),
-		Specification:      requestedSpec.SandboxSpecification,
-		Image:              imageArtifact,
-		CreatedAt:          time.Now(),
-		Metadata:           map[string]any{},
-		CompanionArtifacts: companionArtifacts,
+		ID:                     imageID,
+		ReferenceSpecification: refSpec,
+		ImageArtifact:          imageArtifact,
+		CreatedAt:              time.Now(),
+		Metadata:               map[string]any{},
+		CompanionArtifacts:     append(companionArtifacts, setupArtifacts...),
 	}
 
 	if err := s.ImageRepository.Save(image); err != nil {
@@ -109,6 +130,25 @@ func (s BuildService) logger() *slog.Logger {
 		return s.Logger
 	}
 	return slog.Default()
+}
+
+func deriveImageID(specID, version string) string {
+	specID = strings.TrimSpace(specID)
+	version = strings.TrimSpace(version)
+	timestamp := time.Now().UTC().Format("20060102-150405")
+
+	switch {
+	case specID != "" && version != "":
+		return fmt.Sprintf("%s-%s-%s", specID, sanitizeID(version), timestamp)
+	case specID != "":
+		return fmt.Sprintf("%s-%s", specID, timestamp)
+	default:
+		return timestamp
+	}
+}
+
+func sanitizeID(value string) string {
+	return strings.NewReplacer(" ", "_", "/", "_", "\\", "_").Replace(value)
 }
 
 func storeLocalArtifacts(buildArtifacts []artifacts.Artifact, repository artifacts.ArtifactStore) ([]artifacts.Artifact, error) {
@@ -131,4 +171,13 @@ func storeLocalArtifacts(buildArtifacts []artifacts.Artifact, repository artifac
 		storedArtifacts = append(storedArtifacts, storedArtifact)
 	}
 	return storedArtifacts, nil
+}
+
+func cloneArtifactsList(items []artifacts.Artifact) []artifacts.Artifact {
+	if len(items) == 0 {
+		return nil
+	}
+	cloned := make([]artifacts.Artifact, len(items))
+	copy(cloned, items)
+	return cloned
 }

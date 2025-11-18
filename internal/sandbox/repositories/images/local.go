@@ -8,13 +8,15 @@ import (
 	"path/filepath"
 	"time"
 
-	"cochaviz/mime/internal/sandbox"
+	"cochaviz/bottle/internal/sandbox"
 )
 
 // LocalImageRepository persists sandbox image metadata in JSON files under BaseDir.
 type LocalImageRepository struct {
 	BaseDir string
 }
+
+var _ sandbox.ImageRepository = (*LocalImageRepository)(nil)
 
 // Save writes the sandbox image metadata to disk using its ID as the filename.
 func (rep *LocalImageRepository) Save(image sandbox.SandboxImage) error {
@@ -64,7 +66,7 @@ func (rep *LocalImageRepository) LatestForSpec(specID string) (*sandbox.SandboxI
 			continue
 		}
 
-		if image.Specification.ID != specID {
+		if image.ReferenceSpecification.ID != specID {
 			continue
 		}
 
@@ -85,6 +87,40 @@ func (rep *LocalImageRepository) Get(imageID string) (*sandbox.SandboxImage, err
 		return nil, errors.New("image id is required")
 	}
 	return rep.loadImage(filepath.Join(rep.BaseDir, imageID+".json"))
+}
+
+func (rep *LocalImageRepository) FilterByArchitecture(architecture string) ([]*sandbox.SandboxImage, error) {
+	entries, err := os.ReadDir(rep.BaseDir)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	filteredImages := []*sandbox.SandboxImage{}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		image, err := rep.loadImage(filepath.Join(rep.BaseDir, entry.Name()))
+		if err != nil {
+			return nil, err
+		}
+		if image == nil {
+			continue
+		}
+
+		if image.ReferenceSpecification.DomainProfile.Arch != architecture {
+			continue
+		}
+
+		filteredImages = append(filteredImages, image)
+	}
+
+	return filteredImages, nil
 }
 
 func (rep *LocalImageRepository) loadImage(path string) (*sandbox.SandboxImage, error) {

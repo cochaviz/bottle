@@ -1,4 +1,4 @@
-module cochaviz/mime
+module cochaviz/bottle
 
 go 1.24.4
 
@@ -6,10 +6,12 @@ require libvirt.org/go/libvirt v1.11006.0
 
 require (
 	github.com/google/uuid v1.6.0
+	github.com/kdomanski/iso9660 v0.3.5
 	github.com/spf13/cobra v1.10.1
 	github.com/vishvananda/netlink v1.3.1
 	github.com/vishvananda/netns v0.0.5
 	golang.org/x/sys v0.28.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (

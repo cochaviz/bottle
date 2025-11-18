@@ -6,8 +6,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 
-	"cochaviz/mime/internal/build"
+	"cochaviz/bottle/internal/build"
 
 	libvirt "libvirt.org/go/libvirt"
 )
@@ -17,7 +18,7 @@ var _ build.BuildEnvironmentPreparer = (*LibvirtBuildEnvironmentPreparer)(nil)
 
 // StoragePoolCleaner abstracts libvirt storage cleanup to simplify testing.
 type StoragePoolCleaner interface {
-	CleanupStoragePool(connectionURI, poolName string) error
+	CleanupStoragePool(connectionURI, targetPath string) error
 }
 
 // LibvirtBuildEnvironmentPreparer supplies a temporary workspace for the libvirt builder.
@@ -101,15 +102,9 @@ func (env *LibvirtBuildEnvironment) Cleanup(ctx build.BuildContext) error {
 		}
 	}
 
-	connectionURI := env.ConnectURI
-	poolCleaner := env.storagePoolCleaner
-
-	if poolCleaner != nil && connectionURI != "" && env.WorkDir != "" {
-		poolName := filepath.Base(env.WorkDir)
-		if poolName != "" && poolName != string(os.PathSeparator) && poolName != "." {
-			if err := poolCleaner.CleanupStoragePool(connectionURI, poolName); err != nil {
-				cleanupErr = errors.Join(cleanupErr, fmt.Errorf("cleanup storage pool: %w", err))
-			}
+	if env.storagePoolCleaner != nil && env.ConnectURI != "" && env.WorkDir != "" {
+		if err := env.storagePoolCleaner.CleanupStoragePool(env.ConnectURI, env.WorkDir); err != nil {
+			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("cleanup storage pool: %w", err))
 		}
 	}
 
@@ -155,19 +150,51 @@ func ensureExecutePermissions(path string) error {
 // LibvirtStoragePoolCleaner cleans up a libvirt storage pool.
 type LibvirtStoragePoolCleaner struct{}
 
-// CleanupStoragePool cleans up a libvirt storage pool.
-func (LibvirtStoragePoolCleaner) CleanupStoragePool(connectionURI, poolName string) error {
+func (LibvirtStoragePoolCleaner) CleanupStoragePool(connectionURI, targetPath string) error {
 	conn, err := libvirt.NewConnect(connectionURI)
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
 
-	pool, err := conn.LookupStoragePoolByName(poolName)
+	pool, err := conn.LookupStoragePoolByTargetPath(targetPath)
 	if err != nil {
+		if isInLibvirtErrors(err, libvirt.ERR_NO_STORAGE_POOL) {
+			return nil
+		}
 		return err
 	}
 	defer pool.Free()
 
-	return pool.Delete(libvirt.STORAGE_POOL_DELETE_NORMAL)
+	active, err := pool.IsActive()
+	if err == nil && active {
+		if err := pool.Destroy(); err != nil {
+			if !isInLibvirtErrors(err, libvirt.ERR_OPERATION_INVALID, libvirt.ERR_NO_STORAGE_POOL) {
+				return err
+			}
+		}
+	}
+
+	if err := pool.Undefine(); err != nil {
+		if isInLibvirtErrors(err, libvirt.ERR_NO_STORAGE_POOL) {
+			return nil
+		}
+		return err
+	}
+
+	return nil
+}
+
+func isInLibvirtErrors(err error, codes ...libvirt.ErrorNumber) bool {
+	if err == nil {
+		return false
+	}
+
+	// try convert error to libvirt error
+	var libErr libvirt.Error
+	if !errors.As(err, &libErr) {
+		return false
+	}
+
+	return slices.Contains(codes, libErr.Code)
 }

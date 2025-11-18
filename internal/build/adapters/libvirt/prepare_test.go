@@ -1,8 +1,8 @@
 package libvirt
 
 import (
-	"cochaviz/mime/internal/build"
-	"cochaviz/mime/internal/sandbox"
+	"cochaviz/bottle/internal/build"
+	"cochaviz/bottle/internal/sandbox"
 	"errors"
 	"io/fs"
 	"os"
@@ -13,14 +13,14 @@ import (
 type stubCleaner struct {
 	calls int
 	uri   string
-	pool  string
+	path  string
 	err   error
 }
 
-func (s *stubCleaner) CleanupStoragePool(uri, pool string) error {
+func (s *stubCleaner) CleanupStoragePool(uri, path string) error {
 	s.calls++
 	s.uri = uri
-	s.pool = pool
+	s.path = path
 	return s.err
 }
 
@@ -117,6 +117,10 @@ func TestCleanupRemovesWorkspaceAndInvokesCleaner(t *testing.T) {
 
 	if cleaner.uri != libvirtEnv.ConnectURI {
 		t.Fatalf("CleanupStoragePool uri = %q, want %q", cleaner.uri, libvirtEnv.ConnectURI)
+	}
+
+	if cleaner.path != libvirtEnv.WorkDir {
+		t.Fatalf("CleanupStoragePool path = %q, want %q", cleaner.path, libvirtEnv.WorkDir)
 	}
 
 	if _, err := os.Stat(libvirtEnv.WorkDir); !errors.Is(err, fs.ErrNotExist) {

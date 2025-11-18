@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"cochaviz/mime/internal/artifacts"
-	"cochaviz/mime/internal/sandbox"
+	"cochaviz/bottle/internal/artifacts"
+	"cochaviz/bottle/internal/sandbox"
 )
 
 func TestLocalImageRepositorySaveAndGet(t *testing.T) {
@@ -72,11 +72,11 @@ func TestLocalImageRepositoryLatestForSpecMissingDir(t *testing.T) {
 func newTestImage(id, specID string, createdAt time.Time) sandbox.SandboxImage {
 	return sandbox.SandboxImage{
 		ID: id,
-		Specification: sandbox.SandboxSpecification{
+		ReferenceSpecification: sandbox.SandboxSpecification{
 			ID:      specID,
 			Version: "v1",
 		},
-		Image: artifacts.Artifact{
+		ImageArtifact: artifacts.Artifact{
 			ID:   "artifact-" + id,
 			Kind: artifacts.ImageArtifact,
 			URI:  "file:///tmp/" + id + ".qcow2",
@@ -104,14 +104,14 @@ func assertSandboxImageEqual(t *testing.T, want sandbox.SandboxImage, got *sandb
 	if got.ID != want.ID {
 		t.Fatalf("ID = %q, want %q", got.ID, want.ID)
 	}
-	if !reflect.DeepEqual(got.Specification, want.Specification) {
-		t.Fatalf("Specification = %+v, want %+v", got.Specification, want.Specification)
+	if !reflect.DeepEqual(got.ReferenceSpecification, want.ReferenceSpecification) {
+		t.Fatalf("Specification = %+v, want %+v", got.ReferenceSpecification, want.ReferenceSpecification)
 	}
 	if !got.CreatedAt.Equal(want.CreatedAt) {
 		t.Fatalf("CreatedAt = %v, want %v", got.CreatedAt, want.CreatedAt)
 	}
-	if !reflect.DeepEqual(got.Image, want.Image) {
-		t.Fatalf("Image = %+v, want %+v", got.Image, want.Image)
+	if !reflect.DeepEqual(got.ImageArtifact, want.ImageArtifact) {
+		t.Fatalf("Image = %+v, want %+v", got.ImageArtifact, want.ImageArtifact)
 	}
 	if !reflect.DeepEqual(got.Metadata, want.Metadata) {
 		t.Fatalf("Metadata = %+v, want %+v", got.Metadata, want.Metadata)

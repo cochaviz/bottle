@@ -1,7 +1,7 @@
 package simple
 
 import (
-	specifications "cochaviz/mime/internal/build/repositories"
+	specifications "cochaviz/bottle/internal/build/repositories"
 	"os"
 	"testing"
 )
@@ -23,10 +23,11 @@ func TestSimpleBuild(t *testing.T) {
 	tempImageDir := os.TempDir()
 	tempArtifactDir := os.TempDir()
 
-	Build(
+	BuildSandbox(
 		specs[0].ID,
 		tempImageDir,
 		tempArtifactDir,
 		"qemu:///session", // Use session mode for testing
+		nil,
 	)
 }
