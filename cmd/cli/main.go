@@ -117,7 +117,7 @@ func newSandboxBuildCommand(logger *slog.Logger) *cobra.Command {
 
 			cmdLogger.Info("starting build", "image_dir", imageDir, "artifact_dir", artifactDir, "connect_uri", connectionURI)
 
-			if err := config.BuildWithLogger(specID, imageDir, artifactDir, connectionURI, cmdLogger); err != nil {
+			if err := config.BuildSandbox(specID, imageDir, artifactDir, connectionURI, cmdLogger); err != nil {
 				cmdLogger.Error("build failed", "error", err)
 				return err
 			}

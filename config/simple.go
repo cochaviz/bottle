@@ -28,13 +28,8 @@ var DefaultRunDir = filepath.Join(setup.StorageDir, "leases")
 var DefaultSpecificationDir = filepath.Join(setup.StorageDir, "specifications")
 var DefaultConnectionURI = "qemu:///system"
 
-// Build executes the end-to-end flow to produce an image for the requested specification.
-func Build(specificationID, imageDir, artifactDir, libvirtConnectionURI string) error {
-	return BuildWithLogger(specificationID, imageDir, artifactDir, libvirtConnectionURI, nil)
-}
-
-// BuildWithLogger executes the end-to-end flow to produce an image for the requested specification using the provided logger.
-func BuildWithLogger(specificationID, imageDir, artifactDir, libvirtConnectionURI string, logger *slog.Logger) error {
+// BuildSandbox executes the end-to-end flow to produce an image for the requested specification using the provided logger.
+func BuildSandbox(specificationID, imageDir, artifactDir, libvirtConnectionURI string, logger *slog.Logger) error {
 	logger = logging.Ensure(logger).With("component", "config.simple")
 
 	specificationRepository := buildspecs.NewEmbeddedSpecificationRepository()

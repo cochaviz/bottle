@@ -23,10 +23,11 @@ func TestSimpleBuild(t *testing.T) {
 	tempImageDir := os.TempDir()
 	tempArtifactDir := os.TempDir()
 
-	Build(
+	BuildSandbox(
 		specs[0].ID,
 		tempImageDir,
 		tempArtifactDir,
 		"qemu:///session", // Use session mode for testing
+		nil,
 	)
 }
