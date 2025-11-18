@@ -14,6 +14,7 @@ import (
 
 	config "cochaviz/mime/config"
 	analysis "cochaviz/mime/internal/analysis"
+	"cochaviz/mime/internal/daemon"
 	"cochaviz/mime/internal/logging"
 	"cochaviz/mime/internal/setup"
 )
@@ -62,6 +63,7 @@ func newRootCommand(logger *slog.Logger, levelVar *slog.LevelVar) *cobra.Command
 		newSandboxCommand(logger),
 		newSetupCommand(logger),
 		newAnalysisCommand(logger),
+		newDaemonCommand(logger),
 	)
 	return root
 }
@@ -314,6 +316,151 @@ func flattenSampleArgs(args []string) []string {
 		}
 	}
 	return flat
+}
+
+func newDaemonCommand(logger *slog.Logger) *cobra.Command {
+	var socketPath string
+	resolveSocket := func() string {
+		path := strings.TrimSpace(socketPath)
+		if path == "" {
+			return daemon.DefaultSocketPath
+		}
+		return path
+	}
+
+	cmd := &cobra.Command{
+		Use:   "daemon",
+		Short: "Manage the mime analysis daemon",
+	}
+	cmd.PersistentFlags().StringVar(&socketPath, "socket", daemon.DefaultSocketPath, "Path to daemon control socket")
+
+	cmd.AddCommand(
+		newDaemonServeCommand(logger, resolveSocket),
+		newDaemonStartAnalysisCommand(logger, resolveSocket),
+		newDaemonStopAnalysisCommand(resolveSocket),
+		newDaemonListCommand(resolveSocket),
+	)
+
+	return cmd
+}
+
+func newDaemonServeCommand(logger *slog.Logger, socketPath func() string) *cobra.Command {
+	return &cobra.Command{
+		Use:   "serve",
+		Short: "Run the daemon server",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+
+			d := daemon.New(socketPath(), logger)
+			logger.Info("starting daemon", "socket", socketPath())
+			if err := d.Start(ctx); err != nil {
+				return err
+			}
+			logger.Info("daemon stopped")
+			return nil
+		},
+	}
+}
+
+func newDaemonStartAnalysisCommand(logger *slog.Logger, socketPath func() string) *cobra.Command {
+	var (
+		imageDir              string
+		runDir                string
+		connectionURI         string
+		c2Address             string
+		overrideArch          string
+		sampleArgs            []string
+		instrumentationConfig []string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "start <sample-path>",
+		Args:  cobra.ExactArgs(1),
+		Short: "Request the daemon to start an analysis",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			samplePath := strings.TrimSpace(args[0])
+			if samplePath == "" {
+				return fmt.Errorf("sample path is required")
+			}
+			req := daemon.StartAnalysisRequest{
+				SamplePath:      samplePath,
+				C2Address:       c2Address,
+				ImageDir:        imageDir,
+				RunDir:          runDir,
+				ConnectionURI:   connectionURI,
+				OverrideArch:    overrideArch,
+				SampleArgs:      flattenSampleArgs(sampleArgs),
+				Instrumentation: instrumentationConfig,
+			}
+
+			client := daemon.NewClient(socketPath())
+			id, err := client.StartAnalysis(req)
+			if err != nil {
+				return err
+			}
+			logger.Info("analysis scheduled", "id", id)
+			fmt.Fprintln(cmd.OutOrStdout(), id)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&imageDir, "image-dir", config.DefaultImageDir, "Directory where images are stored")
+	cmd.Flags().StringVar(&runDir, "run-dir", config.DefaultRunDir, "Directory to store sandbox run state")
+	cmd.Flags().StringVar(&connectionURI, "connect-uri", config.DefaultConnectionURI, "Libvirt connection URI")
+	cmd.Flags().StringVar(&c2Address, "c2", "", "Optional C2 address to inject into the analysis")
+	cmd.Flags().StringVar(&overrideArch, "arch", "", "Override sample architecture (e.g., x86_64, arm64)")
+	cmd.Flags().StringArrayVar(&sampleArgs, "sample-args", nil, "Argument to pass to the sample; repeat flag to add additional args")
+	cmd.Flags().StringArrayVar(&instrumentationConfig, "instrumentation", nil, "Path to YAML instrumentation config (repeat to run multiple)")
+
+	return cmd
+}
+
+func newDaemonStopAnalysisCommand(socketPath func() string) *cobra.Command {
+	return &cobra.Command{
+		Use:   "stop <id>",
+		Args:  cobra.ExactArgs(1),
+		Short: "Request the daemon to stop an analysis",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id := strings.TrimSpace(args[0])
+			client := daemon.NewClient(socketPath())
+			if err := client.StopAnalysis(id); err != nil {
+				return err
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "stopped", id)
+			return nil
+		},
+	}
+}
+
+func newDaemonListCommand(socketPath func() string) *cobra.Command {
+	return &cobra.Command{
+		Use:   "list",
+		Short: "List analyses managed by the daemon",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client := daemon.NewClient(socketPath())
+			statuses, err := client.List()
+			if err != nil {
+				return err
+			}
+			out := cmd.OutOrStdout()
+			if len(statuses) == 0 {
+				fmt.Fprintln(out, "no analyses")
+				return nil
+			}
+			for _, status := range statuses {
+				state := "running"
+				if !status.Running {
+					state = "completed"
+					if status.Error != "" {
+						state = fmt.Sprintf("failed (%s)", status.Error)
+					}
+				}
+				fmt.Fprintf(out, "%s\t%s\t%s\n", status.ID, status.Sample, state)
+			}
+			return nil
+		},
+	}
 }
 
 func newSetupCommand(logger *slog.Logger) *cobra.Command {

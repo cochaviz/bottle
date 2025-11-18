@@ -77,7 +77,7 @@ func (w *AnalysisWorker) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("filter sandbox image by architecture: %w", err)
 	}
-	if sandboxImages == nil {
+	if len(sandboxImages) == 0 {
 		return fmt.Errorf("no sandbox image found for architecture %q", arch)
 	}
 
