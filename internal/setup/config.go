@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 )
 
-var ConfigDir = "/etc/mime/config"
-var StorageDir = "/var/mime/"
+var ConfigDir = "/etc/bottle/config"
+var StorageDir = "/var/bottle/"
 
 var configFiles = [...]string{
 	filepath.Join(ConfigDir, "networking.json"),

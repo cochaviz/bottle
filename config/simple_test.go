@@ -1,7 +1,7 @@
 package simple
 
 import (
-	specifications "cochaviz/mime/internal/build/repositories"
+	specifications "cochaviz/bottle/internal/build/repositories"
 	"os"
 	"testing"
 )

@@ -10,7 +10,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"cochaviz/mime/internal/sandbox"
+	"cochaviz/bottle/internal/sandbox"
 )
 
 const (

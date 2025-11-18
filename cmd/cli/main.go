@@ -12,11 +12,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	config "cochaviz/mime/config"
-	analysis "cochaviz/mime/internal/analysis"
-	"cochaviz/mime/internal/daemon"
-	"cochaviz/mime/internal/logging"
-	"cochaviz/mime/internal/setup"
+	config "cochaviz/bottle/config"
+	analysis "cochaviz/bottle/internal/analysis"
+	"cochaviz/bottle/internal/daemon"
+	"cochaviz/bottle/internal/logging"
+	"cochaviz/bottle/internal/setup"
 )
 
 const defaultLogLevel = "warning"
@@ -41,8 +41,8 @@ func newRootCommand(logger *slog.Logger, levelVar *slog.LevelVar) *cobra.Command
 	logLevel := defaultLogLevel
 
 	root := &cobra.Command{
-		Use:           "mime",
-		Short:         "CLI for 'mime': long-term monitoring of sandboxed botnet samples",
+		Use:           "bottle",
+		Short:         "CLI for 'bottle': long-term monitoring of sandboxed botnet samples",
 		SilenceErrors: true,
 		SilenceUsage:  true,
 	}
@@ -73,7 +73,7 @@ func verifySetup(logger *slog.Logger) error {
 	logger.Info("verifying setup state")
 	if err := setup.Verify(); err != nil {
 		logger.Error("setup verification failed", "error", err)
-		logger.Info("run 'mime setup' to initialize the configuration")
+		logger.Info("run 'bottle setup' to initialize the configuration")
 		return err
 	}
 	logger.Info("setup verification succeeded")
@@ -330,7 +330,7 @@ func newDaemonCommand(logger *slog.Logger) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "daemon",
-		Short: "Manage the mime analysis daemon",
+		Short: "Manage the bottle analysis daemon",
 	}
 	cmd.PersistentFlags().StringVar(&socketPath, "socket", daemon.DefaultSocketPath, "Path to daemon control socket")
 
@@ -478,7 +478,7 @@ func newSetupCommand(logger *slog.Logger) *cobra.Command {
 			}
 
 			if alreadyConfigured && !clearConfig {
-				cmdLogger.Info("system already configured", "hint", "use 'mime setup --clear' to reinitialize")
+				cmdLogger.Info("system already configured", "hint", "use 'bottle setup --clear' to reinitialize")
 				os.Exit(0)
 			}
 

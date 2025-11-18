@@ -1,4 +1,4 @@
-module cochaviz/mime
+module cochaviz/bottle
 
 go 1.24.4
 

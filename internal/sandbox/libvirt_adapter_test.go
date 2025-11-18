@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"cochaviz/mime/internal/artifacts"
+	"cochaviz/bottle/internal/artifacts"
 
 	"github.com/kdomanski/iso9660"
 )

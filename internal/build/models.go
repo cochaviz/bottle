@@ -1,8 +1,8 @@
 package build
 
 import (
-	"cochaviz/mime/internal/artifacts"
-	"cochaviz/mime/internal/sandbox"
+	"cochaviz/bottle/internal/artifacts"
+	"cochaviz/bottle/internal/sandbox"
 	"time"
 )
 

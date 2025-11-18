@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"cochaviz/mime/internal/artifacts"
-	"cochaviz/mime/internal/build"
-	"cochaviz/mime/internal/sandbox"
+	"cochaviz/bottle/internal/artifacts"
+	"cochaviz/bottle/internal/build"
+	"cochaviz/bottle/internal/sandbox"
 )
 
 const (

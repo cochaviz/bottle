@@ -8,15 +8,15 @@ import (
 	"path/filepath"
 	"strings"
 
-	"cochaviz/mime/internal/analysis"
-	"cochaviz/mime/internal/artifacts"
-	"cochaviz/mime/internal/build"
-	"cochaviz/mime/internal/build/adapters/libvirt"
-	buildspecs "cochaviz/mime/internal/build/repositories"
-	"cochaviz/mime/internal/logging"
-	"cochaviz/mime/internal/sandbox"
-	"cochaviz/mime/internal/sandbox/repositories/images"
-	"cochaviz/mime/internal/setup"
+	"cochaviz/bottle/internal/analysis"
+	"cochaviz/bottle/internal/artifacts"
+	"cochaviz/bottle/internal/build"
+	"cochaviz/bottle/internal/build/adapters/libvirt"
+	buildspecs "cochaviz/bottle/internal/build/repositories"
+	"cochaviz/bottle/internal/logging"
+	"cochaviz/bottle/internal/sandbox"
+	"cochaviz/bottle/internal/sandbox/repositories/images"
+	"cochaviz/bottle/internal/setup"
 
 	"github.com/google/uuid"
 )
@@ -53,7 +53,7 @@ func BuildSandbox(specificationID, imageDir, artifactDir, libvirtConnectionURI s
 		return fmt.Errorf("create build root %s: %w", buildRoot, err)
 	}
 
-	buildDir, err := os.MkdirTemp(buildRoot, "mime-build-*")
+	buildDir, err := os.MkdirTemp(buildRoot, "bottle-build-*")
 	if err != nil {
 		return fmt.Errorf("create build directory: %w", err)
 	}

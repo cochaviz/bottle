@@ -10,7 +10,7 @@ import (
 	"strings"
 	"text/template"
 
-	"cochaviz/mime/internal/sandbox"
+	"cochaviz/bottle/internal/sandbox"
 
 	"gopkg.in/yaml.v3"
 )

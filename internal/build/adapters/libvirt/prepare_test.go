@@ -1,8 +1,8 @@
 package libvirt
 
 import (
-	"cochaviz/mime/internal/build"
-	"cochaviz/mime/internal/sandbox"
+	"cochaviz/bottle/internal/build"
+	"cochaviz/bottle/internal/sandbox"
 	"errors"
 	"io/fs"
 	"os"

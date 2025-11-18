@@ -14,9 +14,9 @@ import (
 
 const (
 	// GuestSetupMountPath is the directory inside the guest where setup artifacts are mounted.
-	GuestSetupMountPath = "/mnt/mime_setup"
+	GuestSetupMountPath = "/mnt/bottle_setup"
 	// GuestSampleMountPath is the directory inside the guest where sample artifacts are mounted.
-	GuestSampleMountPath = "/mnt/mime_sample"
+	GuestSampleMountPath = "/mnt/bottle_sample"
 	guestMountTimeout    = 2 * time.Minute
 )
 

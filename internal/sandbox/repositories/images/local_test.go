@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"cochaviz/mime/internal/artifacts"
-	"cochaviz/mime/internal/sandbox"
+	"cochaviz/bottle/internal/artifacts"
+	"cochaviz/bottle/internal/sandbox"
 )
 
 func TestLocalImageRepositorySaveAndGet(t *testing.T) {

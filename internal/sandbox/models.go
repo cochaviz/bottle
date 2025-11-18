@@ -1,7 +1,7 @@
 package sandbox
 
 import (
-	"cochaviz/mime/internal/artifacts"
+	"cochaviz/bottle/internal/artifacts"
 	"time"
 )
 

@@ -24,7 +24,7 @@ var (
 
 func materializeSetupScript() (string, error) {
 	setupScriptOnce.Do(func() {
-		f, err := os.CreateTemp("", "mime-bringup-dhcp-*.sh")
+		f, err := os.CreateTemp("", "bottle-bringup-dhcp-*.sh")
 		if err != nil {
 			setupScriptErr = fmt.Errorf("create temp setup script: %w", err)
 			return

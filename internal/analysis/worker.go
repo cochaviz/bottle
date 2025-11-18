@@ -1,7 +1,7 @@
 package analysis
 
 import (
-	"cochaviz/mime/internal/sandbox"
+	"cochaviz/bottle/internal/sandbox"
 	"context"
 	"errors"
 	"fmt"

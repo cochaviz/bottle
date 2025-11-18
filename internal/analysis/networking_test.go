@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"cochaviz/mime/internal/sandbox"
+	"cochaviz/bottle/internal/sandbox"
 )
 
 func TestWhitelistIPAddsAndRemovesRules(t *testing.T) {

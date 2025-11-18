@@ -2,13 +2,14 @@ package daemon
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
 	"time"
 )
 
-const DefaultSocketPath = "/var/run/mime/daemon.sock"
+const DefaultSocketPath = "/var/run/bottle/daemon.sock"
 
 type Client struct {
 	socketPath string
@@ -43,7 +44,7 @@ func (c *Client) send(request IPCRequest, response interface{}) error {
 	}
 	if !resp.OK {
 		if resp.Error != "" {
-			return fmt.Errorf(resp.Error)
+			return errors.New(resp.Error)
 		}
 		return fmt.Errorf("daemon request failed")
 	}

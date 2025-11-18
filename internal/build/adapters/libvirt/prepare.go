@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 
-	"cochaviz/mime/internal/build"
+	"cochaviz/bottle/internal/build"
 
 	libvirt "libvirt.org/go/libvirt"
 )
