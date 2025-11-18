@@ -63,6 +63,7 @@ type workerHandle struct {
 type WorkerStatus struct {
 	ID        string    `json:"id"`
 	Sample    string    `json:"sample"`
+	C2Ip      string    `json:"c2_ip"`
 	StartedAt time.Time `json:"started_at"`
 	Running   bool      `json:"running"`
 	Error     string    `json:"error,omitempty"`
@@ -199,6 +200,7 @@ func (d *Daemon) handleList(conn net.Conn) {
 			ID:        handle.id,
 			Sample:    handle.opts.SamplePath,
 			StartedAt: handle.started,
+			C2Ip:      handle.opts.C2Address,
 			Running:   true,
 		}
 		select {
