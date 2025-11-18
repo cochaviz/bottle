@@ -16,8 +16,9 @@ import (
 )
 
 const (
-	sampleExecutionTimeout         = 2 * time.Minute
-	sandboxLifetime                = 5 * time.Minute
+	DefaultSampleExecutionTimeout time.Duration = 0
+	DefaultSandboxLifetime        time.Duration = 0
+
 	instrumentationWarmup          = 5 * time.Second
 	postSampleDelay                = 5 * time.Second
 	instrumentationStartTimeFormat = "20060102T150405Z"
@@ -37,11 +38,13 @@ type AnalysisWorker struct {
 
 	imageRepo sandbox.ImageRepository
 
-	c2Ip            string
-	archOverride    string
-	sample          Sample
-	sampleArgs      []string
-	instrumentation []Instrumentation
+	c2Ip                   string
+	archOverride           string
+	sample                 Sample
+	sampleArgs             []string
+	instrumentation        []Instrumentation
+	sampleExecutionTimeout time.Duration
+	sandboxLifetime        time.Duration
 }
 
 func NewAnalysisWorker(
@@ -53,16 +56,26 @@ func NewAnalysisWorker(
 	sample Sample,
 	sampleArgs []string,
 	instrumentation []Instrumentation,
+	sampleExecutionTimeout time.Duration,
+	sandboxLifetime time.Duration,
 ) *AnalysisWorker {
+	if sampleExecutionTimeout < 0 {
+		sampleExecutionTimeout = 0
+	}
+	if sandboxLifetime < 0 {
+		sandboxLifetime = 0
+	}
 	return &AnalysisWorker{
-		logger:          logger,
-		driver:          driver,
-		imageRepo:       imageRepo,
-		c2Ip:            c2Ip,
-		archOverride:    strings.TrimSpace(archOverride),
-		sample:          sample,
-		sampleArgs:      append([]string(nil), sampleArgs...),
-		instrumentation: append([]Instrumentation(nil), instrumentation...),
+		logger:                 logger,
+		driver:                 driver,
+		imageRepo:              imageRepo,
+		c2Ip:                   c2Ip,
+		archOverride:           strings.TrimSpace(archOverride),
+		sample:                 sample,
+		sampleArgs:             append([]string(nil), sampleArgs...),
+		instrumentation:        append([]Instrumentation(nil), instrumentation...),
+		sampleExecutionTimeout: sampleExecutionTimeout,
+		sandboxLifetime:        sandboxLifetime,
 	}
 }
 
@@ -197,7 +210,7 @@ func (w *AnalysisWorker) dispatchSampleExecution(ctx context.Context, worker *sa
 		Command: &sandbox.SandboxCommand{
 			Path:    guestSamplePath,
 			Args:    append([]string(nil), w.sampleArgs...),
-			Timeout: sampleExecutionTimeout,
+			Timeout: w.sampleExecutionTimeout,
 		},
 		Response: execResp,
 	}
@@ -218,17 +231,19 @@ func (w *AnalysisWorker) dispatchSampleExecution(ctx context.Context, worker *sa
 		}
 	}()
 
-	go func() {
-		timer := time.NewTimer(sandboxLifetime)
-		defer timer.Stop()
+	if w.sandboxLifetime > 0 {
+		go func() {
+			timer := time.NewTimer(w.sandboxLifetime)
+			defer timer.Stop()
 
-		select {
-		case <-timer.C:
-			requestStop("sandbox lifetime reached, stopping worker")
-		case <-ctx.Done():
-			return
-		}
-	}()
+			select {
+			case <-timer.C:
+				requestStop("sandbox lifetime reached, stopping worker")
+			case <-ctx.Done():
+				return
+			}
+		}()
+	}
 }
 
 func (w *AnalysisWorker) configureC2Whitelist(lease sandbox.SandboxLease) (func(), error) {

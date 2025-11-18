@@ -58,7 +58,7 @@ sudo bottle analysis run /srv/samples/beacon.bin --c2 10.66.66.50
 - `bottle sandbox build <spec>` – Builds a VM image for a specification ID (see `bottle sandbox list`). Flags: `--image-dir`, `--artifact-dir`, `--connect-uri`.
 - `bottle sandbox run <spec>` – Starts a worker that acquires a VM lease and keeps it running until interrupted. Flags: `--run-dir`, `--sample-dir`, `--domain`, `--connect-uri`.
 - `bottle sandbox list` – Lists embedded specifications and whether an image exists locally.
-- `bottle analysis run <sample>` – Runs a sample end-to-end. Automatically selects an image by architecture (or honor `--arch`), pushes files from `--sample-dir`, injects a C2 IP, and optionally starts instrumentation. Additional flags: `--sample-args`, `--instrumentation`, `--image-dir`, `--run-dir`, `--connect-uri`.
+- `bottle analysis run <sample>` – Runs a sample end-to-end. Automatically selects an image by architecture (or honor `--arch`), pushes files from `--sample-dir`, injects a C2 IP, and optionally starts instrumentation. Additional flags: `--sample-args`, `--instrumentation`, `--image-dir`, `--run-dir`, `--connect-uri`, `--sample-timeout`, `--sandbox-lifetime`. Each timeout flag is optional—setting it to `0` disables that safeguard.
 - `bottle daemon serve` – Starts the daemon over a Unix socket (default `/var/run/bottle/daemon.sock`); use `bottle daemon start|stop|list` to interact with it from another terminal/host.
 
 ### Running analyses via the daemon

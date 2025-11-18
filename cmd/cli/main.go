@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	config "github.com/cochaviz/bottle/config"
+	"github.com/cochaviz/bottle/internal/analysis"
 	"github.com/cochaviz/bottle/internal/daemon"
 	"github.com/cochaviz/bottle/internal/logging"
 	"github.com/cochaviz/bottle/internal/setup"
@@ -242,13 +243,15 @@ func newAnalysisCommand(logger *slog.Logger) *cobra.Command {
 
 func newAnalysisRunCommand(logger *slog.Logger) *cobra.Command {
 	var (
-		imageDir              string
-		runDir                string
-		connectionURI         string
-		c2Address             string
-		overrideArch          string
-		sampleArgs            []string
-		instrumentationConfig string
+		imageDir               string
+		runDir                 string
+		connectionURI          string
+		c2Address              string
+		overrideArch           string
+		sampleArgs             []string
+		instrumentationConfig  string
+		sampleExecutionTimeout = analysis.DefaultSampleExecutionTimeout
+		sandboxLifetime        = analysis.DefaultSandboxLifetime
 	)
 
 	cmd := &cobra.Command{
@@ -294,6 +297,8 @@ func newAnalysisRunCommand(logger *slog.Logger) *cobra.Command {
 				overrideArch,
 				flatSampleArgs,
 				instrumentationConfig,
+				sampleExecutionTimeout,
+				sandboxLifetime,
 				cmdLogger,
 			); err != nil {
 				return err
@@ -311,6 +316,8 @@ func newAnalysisRunCommand(logger *slog.Logger) *cobra.Command {
 	cmd.Flags().StringVar(&overrideArch, "arch", "", "Override sample architecture (e.g., x86_64, arm64)")
 	cmd.Flags().StringVar(&instrumentationConfig, "instrumentation", "", "Path to YAML instrumentation config")
 	cmd.Flags().StringArrayVar(&sampleArgs, "sample-args", nil, "Argument to pass to the sample; repeat flag to add additional args")
+	cmd.Flags().DurationVar(&sampleExecutionTimeout, "sample-timeout", analysis.DefaultSampleExecutionTimeout, "Timeout for sample execution (e.g., 2m)")
+	cmd.Flags().DurationVar(&sandboxLifetime, "sandbox-lifetime", analysis.DefaultSandboxLifetime, "How long to keep the sandbox running before stopping it")
 
 	return cmd
 }
@@ -372,13 +379,15 @@ func newDaemonServeCommand(logger *slog.Logger, socketPath func() string) *cobra
 
 func newDaemonStartAnalysisCommand(logger *slog.Logger, socketPath func() string) *cobra.Command {
 	var (
-		imageDir              string
-		runDir                string
-		connectionURI         string
-		c2Address             string
-		overrideArch          string
-		sampleArgs            []string
-		instrumentationConfig string
+		imageDir               string
+		runDir                 string
+		connectionURI          string
+		c2Address              string
+		overrideArch           string
+		sampleArgs             []string
+		instrumentationConfig  string
+		sampleExecutionTimeout = analysis.DefaultSampleExecutionTimeout
+		sandboxLifetime        = analysis.DefaultSandboxLifetime
 	)
 
 	cmd := &cobra.Command{
@@ -399,6 +408,8 @@ func newDaemonStartAnalysisCommand(logger *slog.Logger, socketPath func() string
 				OverrideArch:    overrideArch,
 				SampleArgs:      flattenSampleArgs(sampleArgs),
 				Instrumentation: instrumentationConfig,
+				SampleTimeout:   sampleExecutionTimeout,
+				SandboxLifetime: sandboxLifetime,
 			}
 
 			client := daemon.NewClient(socketPath())
@@ -418,6 +429,8 @@ func newDaemonStartAnalysisCommand(logger *slog.Logger, socketPath func() string
 	cmd.Flags().StringVar(&c2Address, "c2", "", "Optional C2 address to inject into the analysis")
 	cmd.Flags().StringVar(&overrideArch, "arch", "", "Override sample architecture (e.g., x86_64, arm64)")
 	cmd.Flags().StringVar(&instrumentationConfig, "instrumentation", "", "Path to YAML instrumentation config (repeat to run multiple)")
+	cmd.Flags().DurationVar(&sampleExecutionTimeout, "sample-timeout", analysis.DefaultSampleExecutionTimeout, "Timeout for sample execution (e.g., 2m)")
+	cmd.Flags().DurationVar(&sandboxLifetime, "sandbox-lifetime", analysis.DefaultSandboxLifetime, "How long to keep the sandbox running before stopping it")
 	cmd.Flags().StringArrayVar(&sampleArgs, "sample-args", nil, "Argument to pass to the sample; repeat flag to add additional args")
 
 	return cmd

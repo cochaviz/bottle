@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/cochaviz/bottle/internal/analysis"
 	"github.com/cochaviz/bottle/internal/artifacts"
@@ -183,6 +184,8 @@ func RunAnalysis(
 	overrideArch string,
 	sampleArgs []string,
 	instrumentationConfig string,
+	sampleExecutionTimeout time.Duration,
+	sandboxLifetime time.Duration,
 	logger *slog.Logger,
 ) error {
 	logger = logging.Ensure(logger).With("component", "config.simple", "operation", "analysis")
@@ -241,6 +244,8 @@ func RunAnalysis(
 		sample,
 		sampleArgs,
 		instrumentations,
+		sampleExecutionTimeout,
+		sandboxLifetime,
 	)
 
 	logger.Info("starting analysis worker", "sample", sample.Name, "c2", c2Address)

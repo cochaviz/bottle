@@ -39,16 +39,18 @@ type IPCResponse struct {
 }
 
 type StartAnalysisRequest struct {
-	ID              string   `json:"id,omitempty"`
-	SamplePath      string   `json:"sample_path"`
-	C2Address       string   `json:"c2_address,omitempty"`
-	ImageDir        string   `json:"image_dir,omitempty"`
-	RunDir          string   `json:"run_dir,omitempty"`
-	ConnectionURI   string   `json:"connection_uri,omitempty"`
-	OverrideArch    string   `json:"override_arch,omitempty"`
-	SampleArgs      []string `json:"sample_args,omitempty"`
-	Instrumentation string   `json:"instrumentation,omitempty"`
-	LogLevel        string   `json:"log_level,omitempty"`
+	ID              string        `json:"id,omitempty"`
+	SamplePath      string        `json:"sample_path"`
+	C2Address       string        `json:"c2_address,omitempty"`
+	ImageDir        string        `json:"image_dir,omitempty"`
+	RunDir          string        `json:"run_dir,omitempty"`
+	ConnectionURI   string        `json:"connection_uri,omitempty"`
+	OverrideArch    string        `json:"override_arch,omitempty"`
+	SampleArgs      []string      `json:"sample_args,omitempty"`
+	Instrumentation string        `json:"instrumentation,omitempty"`
+	SampleTimeout   time.Duration `json:"sample_timeout,omitempty"`
+	SandboxLifetime time.Duration `json:"sandbox_lifetime,omitempty"`
+	LogLevel        string        `json:"log_level,omitempty"`
 }
 
 type workerHandle struct {
@@ -264,6 +266,8 @@ func (d *Daemon) startAnalysis(req StartAnalysisRequest) (string, error) {
 			req.OverrideArch,
 			req.SampleArgs,
 			req.Instrumentation,
+			req.SampleTimeout,
+			req.SandboxLifetime,
 			logger,
 		)
 		handle.err = err
