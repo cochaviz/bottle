@@ -74,6 +74,7 @@ bottle daemon stop <id>
 ```
 
 The daemon accepts the same flag set as `analysis run` and is ideal for long-running automation or remote clients that only need socket access.
+`bottle daemon list` now shows the sample path and C2 IP (when supplied via `--c2`) so you can see exactly which beacon each worker is pointing at before deciding to stop or restart it.
 
 ## Instrumentation
 Instrumentation is defined in YAML files and rendered through Go templates with these variables:
@@ -94,7 +95,18 @@ cli:
     exec tcpdump -i {{ .VmInterface }} -n -w /var/log/bottle/{{ .SampleName }}.pcap
 ```
 
-Pass one or more configs with `--instrumentation configs/tcpdump.yaml`. `bottle` spawns each command with the rendered template, streams stdout/stderr to the console, and terminates them when the analysis finishes.
+You can also layer multiple CLI helpers and Suricata sensors in a single file and pass it to `--instrumentation`:
+
+```yaml
+cli:
+    - command: tcpdump -i {{ .VmInterface }} -w /home/user/{{ .SampleName }}.pcap host {{ .VmIp }} and host {{ .C2Ip }}
+    - command: gomon {{ .VmInterface }} {{ .VmIp }} --c2-ip {{ .C2Ip }} --sample-id {{ .SampleName }} --save-packets 100
+suricata:
+    - config: /home/user/suricata.yml
+      binary: /usr/bin/suricata
+```
+
+Pass the instrumentation config with `--instrumentation instrumentation.yaml`. `bottle` spawns each command with the rendered template, streams stdout/stderr to the console, and terminates them when the analysis finishes.
 
 ### Suricata instrumentation
 Suricata configs are rendered and injected via `suricata` YAML blocks. The instrumentation writes the templated file to a temporary location, starts Suricata with `suricata -c <rendered> -i <VmInterface>`, and removes the generated file when the instrumentation stops. Provide the template path and optionally override the Suricata binary so the template can reference your lab-specific helpers.
