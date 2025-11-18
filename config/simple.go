@@ -78,7 +78,7 @@ func BuildSandbox(specificationID, imageDir, artifactDir, libvirtConnectionURI s
 		},
 	}
 
-	if err := buildService.Run(ctx, &build.BuildRequest{SpecificationID: specificationID}); err != nil {
+	if err := buildService.Run(context.Background(), &build.BuildRequest{SpecificationID: specificationID}); err != nil {
 		return err
 	}
 
