@@ -85,7 +85,7 @@ Instrumentation is defined in YAML files and rendered through Go templates with 
 | `VmInterface` | Host-side tap interface for the lease |
 | `C2Ip` | C2 IP supplied via `--c2` (if any) |
 
-Example (`configs/tcpdump.yaml`):
+Example CLI instrumentation (`configs/tcpdump.yaml`):
 
 ```yaml
 cli:
@@ -95,6 +95,17 @@ cli:
 ```
 
 Pass one or more configs with `--instrumentation configs/tcpdump.yaml`. `bottle` spawns each command with the rendered template, streams stdout/stderr to the console, and terminates them when the analysis finishes.
+
+### Suricata instrumentation
+Suricata configs are rendered and injected via `suricata` YAML blocks. The instrumentation writes the templated file to a temporary location, starts Suricata with `suricata -c <rendered> -i <VmInterface>`, and removes the generated file when the instrumentation stops. Provide the template path and optionally override the Suricata binary so the template can reference your lab-specific helpers.
+
+```yaml
+suricata:
+  config: configs/suricata.yaml.tmpl
+  binary: /usr/local/bin/suricata # optional; defaults to `suricata`
+```
+
+The templated Suricata config gains access to the same instrumentation variables (`SampleName`, `VmIp`, `VmInterface`, `C2Ip`) so you can inline the metadata directly in your YAML. Use camelCase keys only when referencing the data inside templates (e.g., `{{ .SampleName }}`).
 
 ## Development
 - Format & lint using `go fmt` / `golangci-lint` (not vendored)

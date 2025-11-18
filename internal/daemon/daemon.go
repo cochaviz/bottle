@@ -16,7 +16,6 @@ import (
 	"github.com/google/uuid"
 
 	config "github.com/cochaviz/bottle/config"
-	analysis "github.com/cochaviz/bottle/internal/analysis"
 )
 
 type Command string
@@ -48,7 +47,7 @@ type StartAnalysisRequest struct {
 	ConnectionURI   string   `json:"connection_uri,omitempty"`
 	OverrideArch    string   `json:"override_arch,omitempty"`
 	SampleArgs      []string `json:"sample_args,omitempty"`
-	Instrumentation []string `json:"instrumentation,omitempty"`
+	Instrumentation string   `json:"instrumentation,omitempty"`
 	LogLevel        string   `json:"log_level,omitempty"`
 }
 
@@ -249,13 +248,6 @@ func (d *Daemon) startAnalysis(req StartAnalysisRequest) (string, error) {
 	d.workers[id] = handle
 	d.mu.Unlock()
 
-	insts, err := d.loadInstrumentation(req.Instrumentation)
-	if err != nil {
-		cancel()
-		d.removeWorker(id, err)
-		return "", err
-	}
-
 	logger := d.logger.With("analysis_id", id)
 
 	go func() {
@@ -269,7 +261,7 @@ func (d *Daemon) startAnalysis(req StartAnalysisRequest) (string, error) {
 			req.ConnectionURI,
 			req.OverrideArch,
 			req.SampleArgs,
-			insts,
+			req.Instrumentation,
 			logger,
 		)
 		handle.err = err
@@ -280,20 +272,6 @@ func (d *Daemon) startAnalysis(req StartAnalysisRequest) (string, error) {
 	}()
 
 	return id, nil
-}
-
-func (d *Daemon) loadInstrumentation(paths []string) ([]analysis.Instrumentation, error) {
-	var insts []analysis.Instrumentation
-	for _, path := range paths {
-		inst, err := analysis.LoadInstrumentation(path)
-		if err != nil {
-			return nil, fmt.Errorf("load instrumentation %s: %w", path, err)
-		}
-		if inst != nil {
-			insts = append(insts, inst)
-		}
-	}
-	return insts, nil
 }
 
 func (d *Daemon) stopAnalysis(id string) error {

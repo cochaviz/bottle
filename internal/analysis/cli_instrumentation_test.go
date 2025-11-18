@@ -18,13 +18,19 @@ func TestLoadInstrumentation(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	inst, err := LoadInstrumentation(configPath)
+	insts, err := LoadInstrumentation(configPath)
 	if err != nil {
 		t.Fatalf("LoadInstrumentation() error = %v", err)
 	}
-	if inst == nil {
+	if insts == nil {
 		t.Fatal("LoadInstrumentation() = nil, want instrumentation")
 	}
+
+	if len(insts) > 1 {
+		t.Fatal("Only one instrumentation defined")
+	}
+
+	inst := insts[0]
 
 	if err := inst.Start(context.Background(), sandbox.SandboxLease{}); err != nil {
 		t.Fatalf("instrumentation start error = %v", err)

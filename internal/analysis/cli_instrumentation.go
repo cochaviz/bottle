@@ -11,8 +11,6 @@ import (
 	"text/template"
 
 	"github.com/cochaviz/bottle/internal/sandbox"
-
-	"gopkg.in/yaml.v3"
 )
 
 type CommandLineInstrumentation struct {
@@ -21,10 +19,19 @@ type CommandLineInstrumentation struct {
 	done     chan error
 }
 
-type instrumentationConfig struct {
-	CLI *struct {
-		Command string `yaml:"command"`
-	} `yaml:"cli"`
+type CLIInstrumentationConfig struct {
+	Command string `yaml:"command"`
+}
+
+func (c *CLIInstrumentationConfig) Parse() (Instrumentation, error) {
+	if c == nil {
+		return nil, fmt.Errorf("CLIConfig cannot be nil")
+	}
+	if s := strings.TrimSpace(c.Command); s != "" {
+		return NewCommandLineInstrumentation(s)
+	} else {
+		return nil, fmt.Errorf("Command in instrumentation cannot be empty")
+	}
 }
 
 func NewCommandLineInstrumentation(commandTemplate string) (*CommandLineInstrumentation, error) {
@@ -37,27 +44,6 @@ func NewCommandLineInstrumentation(commandTemplate string) (*CommandLineInstrume
 		return nil, fmt.Errorf("parse instrumentation command template: %w", err)
 	}
 	return &CommandLineInstrumentation{template: tmpl}, nil
-}
-
-func LoadInstrumentation(path string) (Instrumentation, error) {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return nil, nil
-	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-
-	var cfg instrumentationConfig
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("unmarshal instrumentation config: %w", err)
-	}
-	if cfg.CLI == nil || strings.TrimSpace(cfg.CLI.Command) == "" {
-		return nil, errors.New("instrumentation cli.command is required")
-	}
-	return NewCommandLineInstrumentation(cfg.CLI.Command)
 }
 
 func (i *CommandLineInstrumentation) Start(ctx context.Context, lease sandbox.SandboxLease, variables ...InstrumentationVariable) error {
@@ -114,25 +100,4 @@ func (i *CommandLineInstrumentation) Close() error {
 		}
 	}
 	return nil
-}
-
-func instrumentationTemplateData(variables []InstrumentationVariable) map[string]string {
-	data := map[string]string{}
-	for _, variable := range variables {
-		data[variable.Name] = variable.Value
-	}
-	return data
-}
-
-func instrumentationCloseError(err error) error {
-	if err == nil {
-		return nil
-	}
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return nil
-	}
-	if strings.Contains(err.Error(), "killed") {
-		return nil
-	}
-	return fmt.Errorf("instrumentation command exited: %w", err)
 }

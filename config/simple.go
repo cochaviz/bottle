@@ -182,7 +182,7 @@ func RunAnalysis(
 	libvirtConnectionURI string,
 	overrideArch string,
 	sampleArgs []string,
-	instrumentations []analysis.Instrumentation,
+	instrumentationConfig string,
 	logger *slog.Logger,
 ) error {
 	logger = logging.Ensure(logger).With("component", "config.simple", "operation", "analysis")
@@ -225,6 +225,11 @@ func RunAnalysis(
 		ID:       fmt.Sprintf("%s-%s", sampleName, uuid.NewString()),
 		Name:     sampleName,
 		Artifact: absSample,
+	}
+
+	instrumentations, err := analysis.LoadInstrumentation(instrumentationConfig)
+	if err != nil {
+		return err
 	}
 
 	worker := analysis.NewAnalysisWorker(

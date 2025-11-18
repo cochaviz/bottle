@@ -1,4 +1,7 @@
 __debug*
 
+# testing and logging files
 *.yaml
+*.yml
+*.rules
 *.pcap

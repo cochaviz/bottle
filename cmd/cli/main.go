@@ -14,7 +14,6 @@ import (
 	"github.com/spf13/cobra"
 
 	config "github.com/cochaviz/bottle/config"
-	analysis "github.com/cochaviz/bottle/internal/analysis"
 	"github.com/cochaviz/bottle/internal/daemon"
 	"github.com/cochaviz/bottle/internal/logging"
 	"github.com/cochaviz/bottle/internal/setup"
@@ -243,13 +242,13 @@ func newAnalysisCommand(logger *slog.Logger) *cobra.Command {
 
 func newAnalysisRunCommand(logger *slog.Logger) *cobra.Command {
 	var (
-		imageDir               string
-		runDir                 string
-		connectionURI          string
-		c2Address              string
-		overrideArch           string
-		sampleArgs             []string
-		instrumentationConfigs []string
+		imageDir              string
+		runDir                string
+		connectionURI         string
+		c2Address             string
+		overrideArch          string
+		sampleArgs            []string
+		instrumentationConfig string
 	)
 
 	cmd := &cobra.Command{
@@ -285,18 +284,18 @@ func newAnalysisRunCommand(logger *slog.Logger) *cobra.Command {
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 
-			var instrumentations []analysis.Instrumentation
-			for _, path := range instrumentationConfigs {
-				inst, err := analysis.LoadInstrumentation(path)
-				if err != nil {
-					return err
-				}
-				if inst != nil {
-					instrumentations = append(instrumentations, inst)
-				}
-			}
-
-			if err := config.RunAnalysis(ctx, absSample, c2Address, imageDir, runDir, connectionURI, overrideArch, flatSampleArgs, instrumentations, cmdLogger); err != nil {
+			if err := config.RunAnalysis(
+				ctx,
+				absSample,
+				c2Address,
+				imageDir,
+				runDir,
+				connectionURI,
+				overrideArch,
+				flatSampleArgs,
+				instrumentationConfig,
+				cmdLogger,
+			); err != nil {
 				return err
 			}
 
@@ -310,8 +309,8 @@ func newAnalysisRunCommand(logger *slog.Logger) *cobra.Command {
 	cmd.Flags().StringVar(&connectionURI, "connect-uri", config.DefaultConnectionURI, "Libvirt connection URI")
 	cmd.Flags().StringVar(&c2Address, "c2", "", "Optional C2 address to inject into the analysis")
 	cmd.Flags().StringVar(&overrideArch, "arch", "", "Override sample architecture (e.g., x86_64, arm64)")
+	cmd.Flags().StringVar(&instrumentationConfig, "instrumentation", "", "Path to YAML instrumentation config")
 	cmd.Flags().StringArrayVar(&sampleArgs, "sample-args", nil, "Argument to pass to the sample; repeat flag to add additional args")
-	cmd.Flags().StringArrayVar(&instrumentationConfigs, "instrumentation", nil, "Path to YAML instrumentation config (repeat to run multiple)")
 
 	return cmd
 }
@@ -379,7 +378,7 @@ func newDaemonStartAnalysisCommand(logger *slog.Logger, socketPath func() string
 		c2Address             string
 		overrideArch          string
 		sampleArgs            []string
-		instrumentationConfig []string
+		instrumentationConfig string
 	)
 
 	cmd := &cobra.Command{
@@ -418,8 +417,8 @@ func newDaemonStartAnalysisCommand(logger *slog.Logger, socketPath func() string
 	cmd.Flags().StringVar(&connectionURI, "connect-uri", config.DefaultConnectionURI, "Libvirt connection URI")
 	cmd.Flags().StringVar(&c2Address, "c2", "", "Optional C2 address to inject into the analysis")
 	cmd.Flags().StringVar(&overrideArch, "arch", "", "Override sample architecture (e.g., x86_64, arm64)")
+	cmd.Flags().StringVar(&instrumentationConfig, "instrumentation", "", "Path to YAML instrumentation config (repeat to run multiple)")
 	cmd.Flags().StringArrayVar(&sampleArgs, "sample-args", nil, "Argument to pass to the sample; repeat flag to add additional args")
-	cmd.Flags().StringArrayVar(&instrumentationConfig, "instrumentation", nil, "Path to YAML instrumentation config (repeat to run multiple)")
 
 	return cmd
 }
