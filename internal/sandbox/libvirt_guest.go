@@ -12,6 +12,8 @@ import (
 	libvirt "libvirt.org/go/libvirt"
 )
 
+var ErrGuestCommandTimedOut = errors.New("guest command timed out")
+
 const (
 	// GuestSetupMountPath is the directory inside the guest where setup artifacts are mounted.
 	GuestSetupMountPath = "/mnt/bottle_setup"
@@ -259,7 +261,7 @@ func waitForGuestCommand(domain *libvirt.Domain, pid int, timeout time.Duration)
 		}
 
 		if time.Now().After(deadline) {
-			return guestCommandResult{}, errors.New("guest command timed out")
+			return guestCommandResult{}, ErrGuestCommandTimedOut
 		}
 		time.Sleep(500 * time.Millisecond)
 	}

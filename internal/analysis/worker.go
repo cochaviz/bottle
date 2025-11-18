@@ -219,7 +219,11 @@ func (w *AnalysisWorker) dispatchSampleExecution(ctx context.Context, worker *sa
 		select {
 		case resp := <-execResp:
 			if resp.Err != nil {
-				w.logger.Error("sample execution failed", "error", resp.Err)
+				if errors.Is(resp.Err, sandbox.ErrGuestCommandTimedOut) {
+					w.logger.Warn("sample execution timed out", "timeout", w.sampleExecutionTimeout)
+				} else {
+					w.logger.Error("sample execution failed", "error", resp.Err)
+				}
 			} else if resp.Result != nil {
 				w.logger.Info("sample execution finished", "exit_code", resp.Result.ExitCode)
 			}
