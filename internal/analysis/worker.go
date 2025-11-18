@@ -9,12 +9,15 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
 const (
 	sampleExecutionTimeout = 2 * time.Minute
 	sandboxLifetime        = 5 * time.Minute
+	instrumentationWarmup  = 5 * time.Second
+	postSampleDelay        = 5 * time.Second
 )
 
 type Sample struct {
@@ -139,6 +142,10 @@ func (w *AnalysisWorker) Run(ctx context.Context) error {
 			defer instCleanup()
 			w.logger.Info("instrumentation started", "count", len(w.instrumentation))
 		}
+
+		waitWithContext(analysisCtx, instrumentationWarmup, func() {
+			w.logger.Info("instrumentation warm-up complete")
+		})
 	}
 
 	w.dispatchSampleExecution(analysisCtx, sandboxWorker, sampleDir)
@@ -158,6 +165,27 @@ func (w *AnalysisWorker) dispatchSampleExecution(ctx context.Context, worker *sa
 	relativePath = filepath.ToSlash(relativePath)
 	guestSamplePath := path.Join(sandbox.GuestSampleMountPath, relativePath)
 
+	stopOnce := sync.Once{}
+	requestStop := func(reason string) {
+		stopOnce.Do(func() {
+			w.logger.Info(reason)
+			stopResp := make(chan sandbox.SandboxWorkerSignalResponse, 1)
+			worker.SignalChannel() <- sandbox.SandboxWorkerSignal{
+				Type:     sandbox.SandboxWorkerSignalStop,
+				Response: stopResp,
+			}
+			go func() {
+				select {
+				case <-stopResp:
+					w.logger.Info("sandbox worker stopped")
+				case <-time.After(30 * time.Second):
+					w.logger.Warn("timeout waiting for sandbox worker stop response")
+				case <-ctx.Done():
+				}
+			}()
+		})
+	}
+
 	execResp := make(chan sandbox.SandboxWorkerSignalResponse, 1)
 	worker.SignalChannel() <- sandbox.SandboxWorkerSignal{
 		Type: sandbox.SandboxWorkerSignalExecuteCommand,
@@ -174,11 +202,13 @@ func (w *AnalysisWorker) dispatchSampleExecution(ctx context.Context, worker *sa
 		case resp := <-execResp:
 			if resp.Err != nil {
 				w.logger.Error("sample execution failed", "error", resp.Err)
-				return
-			}
-			if resp.Result != nil {
+			} else if resp.Result != nil {
 				w.logger.Info("sample execution finished", "exit_code", resp.Result.ExitCode)
 			}
+			waitWithContext(ctx, postSampleDelay, func() {
+				w.logger.Info("post-sample delay complete, stopping sandbox")
+			})
+			requestStop("sample execution completed, stopping sandbox")
 		case <-ctx.Done():
 		}
 	}()
@@ -189,23 +219,9 @@ func (w *AnalysisWorker) dispatchSampleExecution(ctx context.Context, worker *sa
 
 		select {
 		case <-timer.C:
-			w.logger.Info("sandbox lifetime reached, stopping worker")
+			requestStop("sandbox lifetime reached, stopping worker")
 		case <-ctx.Done():
 			return
-		}
-
-		stopResp := make(chan sandbox.SandboxWorkerSignalResponse, 1)
-		worker.SignalChannel() <- sandbox.SandboxWorkerSignal{
-			Type:     sandbox.SandboxWorkerSignalStop,
-			Response: stopResp,
-		}
-
-		select {
-		case <-stopResp:
-			w.logger.Info("sandbox worker stopped")
-		case <-time.After(30 * time.Second):
-			w.logger.Warn("timeout waiting for sandbox worker stop response")
-		case <-ctx.Done():
 		}
 	}()
 }
@@ -293,4 +309,23 @@ func leaseVMInterface(lease sandbox.SandboxLease) (string, error) {
 		return "", errors.New("sandbox lease vm_interface metadata is empty")
 	}
 	return iface, nil
+}
+
+func waitWithContext(ctx context.Context, d time.Duration, onComplete func()) {
+	if d <= 0 {
+		if onComplete != nil {
+			onComplete()
+		}
+		return
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+
+	select {
+	case <-timer.C:
+		if onComplete != nil {
+			onComplete()
+		}
+	case <-ctx.Done():
+	}
 }
