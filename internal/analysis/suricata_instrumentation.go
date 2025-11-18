@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,21 +19,27 @@ var _ Instrumentation = (*suricataInstrumentation)(nil)
 
 type SuricataInstrumentationConfig struct {
 	Config string `yaml:"config"`
-	Binary string `yaml:"binary"`
+	Binary string `yaml:"binary,omitempty"`
+	Output string `yaml:"output,omitempty"`
 }
 
 type suricataInstrumentation struct {
 	configTemplate     *template.Template
 	binary             string
+	outputMode         string
 	cancel             context.CancelFunc
 	done               chan error
 	renderedConfigPath string
+	logFile            *os.File
 }
 
 // NewSuricataInstrumentation loads the specified Suricata config template and returns
 // an instrumentation implementation that renders it for each run and starts suricata.
-func NewSuricataInstrumentation(configPath, binary string) (Instrumentation, error) {
-	configPath = strings.TrimSpace(configPath)
+func NewSuricataInstrumentation(cfg *SuricataInstrumentationConfig) (Instrumentation, error) {
+	if cfg == nil {
+		return nil, errors.New("suricata instrumentation config cannot be nil")
+	}
+	configPath := strings.TrimSpace(cfg.Config)
 	if configPath == "" {
 		return nil, errors.New("suricata instrumentation config path is required")
 	}
@@ -49,13 +56,20 @@ func NewSuricataInstrumentation(configPath, binary string) (Instrumentation, err
 		return nil, fmt.Errorf("parse suricata config template: %w", err)
 	}
 
-	binary = strings.TrimSpace(binary)
+	binary := strings.TrimSpace(cfg.Binary)
 	if binary == "" {
 		binary = "suricata"
 	}
+
+	outputMode, err := resolveInstrumentationOutput(cfg.Output)
+	if err != nil {
+		return nil, err
+	}
+
 	return &suricataInstrumentation{
 		configTemplate: tmpl,
 		binary:         binary,
+		outputMode:     outputMode,
 	}, nil
 }
 
@@ -98,17 +112,71 @@ func (i *suricataInstrumentation) Start(ctx context.Context, lease sandbox.Sandb
 	i.cancel = cancel
 
 	cmd := exec.CommandContext(procCtx, i.binary, "-c", i.renderedConfigPath, "-i", vmInterface)
-	dir := strings.TrimSpace(instrumentationVariableValue(variables, InstrumentationLogDir))
+	dir := instrumentationWorkingDir(lease, variables)
 	if dir != "" {
 		cmd.Dir = dir
 	}
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+
+	var (
+		logFile    *os.File
+		stdoutPipe io.ReadCloser
+		stderrPipe io.ReadCloser
+	)
+	if i.outputMode == "file" {
+		if dir == "" {
+			i.cleanupRenderedConfig()
+			cancel()
+			return errors.New("log directory unavailable for suricata output")
+		}
+		stdoutPipe, err = cmd.StdoutPipe()
+		if err != nil {
+			i.cleanupRenderedConfig()
+			cancel()
+			return fmt.Errorf("create suricata stdout pipe: %w", err)
+		}
+		stderrPipe, err = cmd.StderrPipe()
+		if err != nil {
+			i.cleanupRenderedConfig()
+			cancel()
+			stdoutPipe.Close()
+			return fmt.Errorf("create suricata stderr pipe: %w", err)
+		}
+	} else {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
 
 	if err := cmd.Start(); err != nil {
+		if stdoutPipe != nil {
+			stdoutPipe.Close()
+		}
+		if stderrPipe != nil {
+			stderrPipe.Close()
+		}
 		i.cleanupRenderedConfig()
 		cancel()
 		return fmt.Errorf("start suricata: %w", err)
+	}
+
+	if stdoutPipe != nil && stderrPipe != nil {
+		logPath := filepath.Join(dir, fmt.Sprintf("suricata-%d.log", cmd.Process.Pid))
+		logFile, err = os.Create(logPath)
+		if err != nil {
+			stdoutPipe.Close()
+			stderrPipe.Close()
+			i.cleanupRenderedConfig()
+			cancel()
+			return fmt.Errorf("create suricata log file: %w", err)
+		}
+		i.logFile = logFile
+		go func() {
+			defer stdoutPipe.Close()
+			_, _ = io.Copy(logFile, stdoutPipe)
+		}()
+		go func() {
+			defer stderrPipe.Close()
+			_, _ = io.Copy(logFile, stderrPipe)
+		}()
 	}
 
 	i.done = make(chan error, 1)
@@ -133,6 +201,10 @@ func (i *suricataInstrumentation) Close() error {
 			}
 		}
 		i.done = nil
+	}
+	if i.logFile != nil {
+		_ = i.logFile.Close()
+		i.logFile = nil
 	}
 	i.cleanupRenderedConfig()
 	return nil

@@ -5,8 +5,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"text/template"
 
@@ -14,28 +16,30 @@ import (
 )
 
 type CommandLineInstrumentation struct {
-	template *template.Template
-	cancel   context.CancelFunc
-	done     chan error
+	template   *template.Template
+	cancel     context.CancelFunc
+	done       chan error
+	outputMode string
+	logFile    *os.File
 }
 
 type CLIInstrumentationConfig struct {
 	Command string `yaml:"command"`
+	Output  string `yaml:"output,omitempty"`
 }
 
 func (c *CLIInstrumentationConfig) Parse() (Instrumentation, error) {
 	if c == nil {
 		return nil, fmt.Errorf("CLIConfig cannot be nil")
 	}
-	if s := strings.TrimSpace(c.Command); s != "" {
-		return NewCommandLineInstrumentation(s)
-	} else {
-		return nil, fmt.Errorf("Command in instrumentation cannot be empty")
-	}
+	return NewCommandLineInstrumentation(c)
 }
 
-func NewCommandLineInstrumentation(commandTemplate string) (*CommandLineInstrumentation, error) {
-	commandTemplate = strings.TrimSpace(commandTemplate)
+func NewCommandLineInstrumentation(cfg *CLIInstrumentationConfig) (*CommandLineInstrumentation, error) {
+	if cfg == nil {
+		return nil, errors.New("cli instrumentation config cannot be nil")
+	}
+	commandTemplate := strings.TrimSpace(cfg.Command)
 	if commandTemplate == "" {
 		return nil, errors.New("command template is required")
 	}
@@ -43,7 +47,14 @@ func NewCommandLineInstrumentation(commandTemplate string) (*CommandLineInstrume
 	if err != nil {
 		return nil, fmt.Errorf("parse instrumentation command template: %w", err)
 	}
-	return &CommandLineInstrumentation{template: tmpl}, nil
+	output, err := resolveInstrumentationOutput(cfg.Output)
+	if err != nil {
+		return nil, err
+	}
+	return &CommandLineInstrumentation{
+		template:   tmpl,
+		outputMode: output,
+	}, nil
 }
 
 func (i *CommandLineInstrumentation) Start(ctx context.Context, lease sandbox.SandboxLease, variables ...InstrumentationVariable) error {
@@ -68,16 +79,73 @@ func (i *CommandLineInstrumentation) Start(ctx context.Context, lease sandbox.Sa
 
 	ctx, cancel := context.WithCancel(ctx)
 	cmd := exec.CommandContext(ctx, "sh", "-c", command)
-	dir := strings.TrimSpace(instrumentationVariableValue(variables, InstrumentationLogDir))
+
+	dir := instrumentationWorkingDir(lease, variables)
 	if dir != "" {
 		cmd.Dir = dir
 	}
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+
+	var (
+		logFile    *os.File
+		stdoutPipe io.ReadCloser
+		stderrPipe io.ReadCloser
+		label      string
+		err        error
+	)
+	if i.outputMode == "file" {
+		if dir == "" {
+			cancel()
+			return errors.New("log directory is not available for instrumentation file output")
+		}
+		stdoutPipe, err = cmd.StdoutPipe()
+		if err != nil {
+			cancel()
+			return fmt.Errorf("create stdout pipe: %w", err)
+		}
+		stderrPipe, err = cmd.StderrPipe()
+		if err != nil {
+			cancel()
+			stdoutPipe.Close()
+			return fmt.Errorf("create stderr pipe: %w", err)
+		}
+		label = instrumentationLabelFromCommand(command)
+		if label == "" {
+			label = "cli"
+		}
+	} else {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
 
 	if err := cmd.Start(); err != nil {
 		cancel()
+		if stdoutPipe != nil {
+			stdoutPipe.Close()
+		}
+		if stderrPipe != nil {
+			stderrPipe.Close()
+		}
 		return fmt.Errorf("start instrumentation command: %w", err)
+	}
+
+	if stdoutPipe != nil && stderrPipe != nil {
+		logPath := filepath.Join(dir, fmt.Sprintf("%s-%d.log", label, cmd.Process.Pid))
+		logFile, err = os.Create(logPath)
+		if err != nil {
+			stdoutPipe.Close()
+			stderrPipe.Close()
+			cancel()
+			return fmt.Errorf("create instrumentation log file: %w", err)
+		}
+		i.logFile = logFile
+		go func() {
+			defer stdoutPipe.Close()
+			_, _ = io.Copy(logFile, stdoutPipe)
+		}()
+		go func() {
+			defer stderrPipe.Close()
+			_, _ = io.Copy(logFile, stderrPipe)
+		}()
 	}
 
 	i.cancel = cancel
@@ -102,6 +170,10 @@ func (i *CommandLineInstrumentation) Close() error {
 		if closeErr := instrumentationCloseError(err); closeErr != nil {
 			return closeErr
 		}
+	}
+	if i.logFile != nil {
+		_ = i.logFile.Close()
+		i.logFile = nil
 	}
 	return nil
 }

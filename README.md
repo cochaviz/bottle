@@ -100,15 +100,20 @@ cli:
     exec tcpdump -i {{ .VmInterface }} -n -w /var/log/bottle/{{ .SampleName }}.pcap
 ```
 
+Use the optional `output` key to control where CLI helpers emit their logs; defaults to `stdout`. Setting `output: file` writes both stdout and stderr to `<LogDir>/<instrumentation_name>-<pid>.log` (where the instrumentation name is derived from the command’s basename), and it keeps the working directory inside `LogDir` so helpers can drop artifacts there.
+
 You can also layer multiple CLI helpers and Suricata sensors in a single file and pass it to `--instrumentation`:
 
 ```yaml
 cli:
     - command: tcpdump -i {{ .VmInterface }} -w /home/user/{{ .SampleName }}.pcap host {{ .VmIp }} and host {{ .C2Ip }}
+      output: file
     - command: gomon {{ .VmInterface }} {{ .VmIp }} --c2-ip {{ .C2Ip }} --sample-id {{ .SampleName }} --save-packets 100
+      output: stdout
 suricata:
     - config: /home/user/suricata.yml
       binary: /usr/bin/suricata
+      output: file
 ```
 
 Pass the instrumentation config with `--instrumentation instrumentation.yaml`. `bottle` spawns each command with the rendered template, streams stdout/stderr to the console, and terminates them when the analysis finishes.
@@ -122,7 +127,7 @@ suricata:
   binary: /usr/local/bin/suricata # optional; defaults to `suricata`
 ```
 
-The templated Suricata config gains access to the same instrumentation variables (`SampleName`, `VmIp`, `VmInterface`, `C2Ip`, `StartTime`, `RunDir`, `LogDir`) so you can inline the metadata directly in your YAML. Use camelCase keys only when referencing the data inside templates (e.g., `{{ .SampleName }}`).
+The templated Suricata config gains access to the same instrumentation variables (`SampleName`, `VmIp`, `VmInterface`, `C2Ip`, `StartTime`, `RunDir`, `LogDir`) so you can inline the metadata directly in your YAML. Set `output: file` to capture Suricata’s stdout/stderr in `LogDir/suricata-<pid>.log`; the instrumentation still writes the rendered config to a temporary file before dropping it in place. Use camelCase keys only when referencing the data inside templates (e.g., `{{ .SampleName }}`).
 
 ## Development
 - Format & lint using `go fmt` / `golangci-lint` (not vendored)

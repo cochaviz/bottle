@@ -141,8 +141,8 @@ func LoadInstrumentation(path string) ([]Instrumentation, error) {
 			if entry == nil {
 				continue
 			}
-			if s := strings.TrimSpace(entry.Command); s != "" {
-				instrumentation, err := NewCommandLineInstrumentation(s)
+			if strings.TrimSpace(entry.Command) != "" {
+				instrumentation, err := NewCommandLineInstrumentation(entry)
 				if err != nil {
 					return nil, err
 				}
@@ -160,7 +160,7 @@ func LoadInstrumentation(path string) ([]Instrumentation, error) {
 			if strings.TrimSpace(entry.Config) == "" {
 				continue
 			}
-			instrumentation, err := NewSuricataInstrumentation(entry.Config, entry.Binary)
+			instrumentation, err := NewSuricataInstrumentation(entry)
 			if err != nil {
 				return nil, err
 			}
