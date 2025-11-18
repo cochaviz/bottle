@@ -1,4 +1,4 @@
-module cochaviz/bottle
+module github.com/cochaviz/bottle
 
 go 1.24.4
 

@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"cochaviz/bottle/internal/sandbox"
+	"github.com/cochaviz/bottle/internal/sandbox"
 )
 
 // LocalImageRepository persists sandbox image metadata in JSON files under BaseDir.

@@ -13,11 +13,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	config "cochaviz/bottle/config"
-	analysis "cochaviz/bottle/internal/analysis"
-	"cochaviz/bottle/internal/daemon"
-	"cochaviz/bottle/internal/logging"
-	"cochaviz/bottle/internal/setup"
+	config "github.com/cochaviz/bottle/config"
+	analysis "github.com/cochaviz/bottle/internal/analysis"
+	"github.com/cochaviz/bottle/internal/daemon"
+	"github.com/cochaviz/bottle/internal/logging"
+	"github.com/cochaviz/bottle/internal/setup"
 )
 
 const defaultLogLevel = "warning"

@@ -15,8 +15,8 @@ import (
 
 	"github.com/google/uuid"
 
-	config "cochaviz/bottle/config"
-	analysis "cochaviz/bottle/internal/analysis"
+	config "github.com/cochaviz/bottle/config"
+	analysis "github.com/cochaviz/bottle/internal/analysis"
 )
 
 type Command string

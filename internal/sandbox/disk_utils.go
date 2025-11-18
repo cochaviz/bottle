@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"cochaviz/bottle/internal/artifacts"
+	"github.com/cochaviz/bottle/internal/artifacts"
 
 	"github.com/kdomanski/iso9660"
 )

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"cochaviz/bottle/internal/artifacts"
-	"cochaviz/bottle/internal/sandbox"
+	"github.com/cochaviz/bottle/internal/artifacts"
+	"github.com/cochaviz/bottle/internal/sandbox"
 )
 
 type BuildService struct {

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"cochaviz/bottle/internal/sandbox"
+	"github.com/cochaviz/bottle/internal/sandbox"
 )
 
 func TestLoadInstrumentation(t *testing.T) {

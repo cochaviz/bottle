@@ -1,8 +1,7 @@
 package libvirt
 
 import (
-	"cochaviz/bottle/internal/build"
-	"cochaviz/bottle/internal/sandbox"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -10,8 +9,8 @@ import (
 	"runtime"
 	"testing"
 
-	"cochaviz/mime/internal/build"
-	"cochaviz/mime/internal/sandbox"
+	"github.com/cochaviz/bottle/internal/build"
+	"github.com/cochaviz/bottle/internal/sandbox"
 )
 
 func TestDeriveConfigPopulatesFields(t *testing.T) {

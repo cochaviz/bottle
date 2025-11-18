@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"cochaviz/bottle/internal/artifacts"
+	"github.com/cochaviz/bottle/internal/artifacts"
 
 	"github.com/google/uuid"
 	libvirt "libvirt.org/go/libvirt"

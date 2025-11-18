@@ -12,8 +12,8 @@ import (
 	"runtime"
 	"strings"
 
-	"cochaviz/bottle/internal/artifacts"
-	"cochaviz/bottle/internal/build"
+	"github.com/cochaviz/bottle/internal/artifacts"
+	"github.com/cochaviz/bottle/internal/build"
 
 	libvirt "libvirt.org/go/libvirt"
 )
