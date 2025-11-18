@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"context"
@@ -21,7 +21,7 @@ import (
 
 const defaultLogLevel = "warning"
 
-func main() {
+func StartCLI() {
 	var levelVar slog.LevelVar
 	levelVar.Set(slog.LevelInfo)
 
