@@ -1,6 +1,7 @@
 package build
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -20,7 +21,10 @@ type BuildService struct {
 	ArtifactStore                artifacts.ArtifactStore
 }
 
-func (s *BuildService) Run(request *BuildRequest) error {
+func (s *BuildService) Run(ctx context.Context, request *BuildRequest) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if s.BuildSpecificationRepository == nil {
 		return errors.New("build specification repository is not configured")
 	}
@@ -50,7 +54,7 @@ func (s *BuildService) Run(request *BuildRequest) error {
 	defer env.Cleanup(context)
 	logger.Info("build environment prepared")
 
-	buildOutput, err := s.BuildDriver.Build(context, env)
+	buildOutput, err := s.BuildDriver.Build(ctx, context, env)
 	if err != nil {
 		return err
 	}

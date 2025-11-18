@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -28,8 +29,15 @@ func main() {
 	logger := logging.NewCLI(os.Stderr, &levelVar)
 	slog.SetDefault(logger)
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	root := newRootCommand(logger, &levelVar)
-	if err := root.Execute(); err != nil {
+	if err := root.ExecuteContext(ctx); err != nil {
+		if errors.Is(err, context.Canceled) {
+			logger.Warn("command interrupted", "error", err)
+			os.Exit(130)
+		}
 		logger.Error("command execution failed", "error", err)
 		os.Exit(1)
 	}

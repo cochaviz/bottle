@@ -9,6 +9,9 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"cochaviz/mime/internal/build"
+	"cochaviz/mime/internal/sandbox"
 )
 
 func TestDeriveConfigPopulatesFields(t *testing.T) {
@@ -81,6 +84,11 @@ func TestDeriveConfigPopulatesFields(t *testing.T) {
 
 	if cfg.PreseedPath != nil {
 		t.Fatalf("expected nil preseed path when preseed disabled")
+	}
+
+	expectedDomain := "sandbox-builder-bookworm-x86_64"
+	if cfg.DomainName != expectedDomain {
+		t.Fatalf("unexpected domain name: got %q want %q", cfg.DomainName, expectedDomain)
 	}
 }
 
@@ -249,7 +257,7 @@ func TestVirtInstallBuilderRejectsUnknownEnvironment(t *testing.T) {
 	builder := &VirtInstallBuilder{}
 	ctx := build.BuildContext{}
 
-	_, err := builder.Build(ctx, noopEnv{})
+	_, err := builder.Build(context.Background(), ctx, noopEnv{})
 	if err == nil {
 		t.Fatalf("Build() error = nil, want error")
 	}
@@ -273,7 +281,7 @@ func TestVirtInstallBuilderPropagatesConfigErrors(t *testing.T) {
 		},
 	}
 
-	_, err := builder.Build(ctx, env)
+	_, err := builder.Build(context.Background(), ctx, env)
 	if err == nil {
 		t.Fatalf("Build() error = nil, want error")
 	}
