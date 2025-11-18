@@ -85,6 +85,11 @@ Instrumentation is defined in YAML files and rendered through Go templates with 
 | `VmIp` | IP address assigned to the guest |
 | `VmInterface` | Host-side tap interface for the lease |
 | `C2Ip` | C2 IP supplied via `--c2` (if any) |
+| `StartTime` | UTC start time (format `20060102T150405Z`) for embedding in filenames |
+| `RunDir` | Filesystem path to the temporary lease directory for this run |
+| `LogDir` | Dedicated log path (`/var/log/bottle/<SampleName>-<StartTime>` by default) where instrumentation helpers can emit artifacts |
+
+StartTime, RunDir, and LogDir help you timestamp output and store artifacts near either the lease workspace or the persisted logs. `LogDir` is created after the worker starts (defaulting to `/var/log/bottle/<SampleName>-<StartTime>`) and is used as the instrumentation working directory, so any relative paths that your helpers emit land inside the log workspace while `RunDir` stays available if you need the sandbox state.
 
 Example CLI instrumentation (`configs/tcpdump.yaml`):
 
@@ -117,7 +122,7 @@ suricata:
   binary: /usr/local/bin/suricata # optional; defaults to `suricata`
 ```
 
-The templated Suricata config gains access to the same instrumentation variables (`SampleName`, `VmIp`, `VmInterface`, `C2Ip`) so you can inline the metadata directly in your YAML. Use camelCase keys only when referencing the data inside templates (e.g., `{{ .SampleName }}`).
+The templated Suricata config gains access to the same instrumentation variables (`SampleName`, `VmIp`, `VmInterface`, `C2Ip`, `StartTime`, `RunDir`, `LogDir`) so you can inline the metadata directly in your YAML. Use camelCase keys only when referencing the data inside templates (e.g., `{{ .SampleName }}`).
 
 ## Development
 - Format & lint using `go fmt` / `golangci-lint` (not vendored)

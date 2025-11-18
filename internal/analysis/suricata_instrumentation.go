@@ -59,7 +59,7 @@ func NewSuricataInstrumentation(configPath, binary string) (Instrumentation, err
 	}, nil
 }
 
-func (i *suricataInstrumentation) Start(ctx context.Context, _ sandbox.SandboxLease, variables ...InstrumentationVariable) error {
+func (i *suricataInstrumentation) Start(ctx context.Context, lease sandbox.SandboxLease, variables ...InstrumentationVariable) error {
 	if i == nil {
 		return nil
 	}
@@ -98,6 +98,10 @@ func (i *suricataInstrumentation) Start(ctx context.Context, _ sandbox.SandboxLe
 	i.cancel = cancel
 
 	cmd := exec.CommandContext(procCtx, i.binary, "-c", i.renderedConfigPath, "-i", vmInterface)
+	dir := strings.TrimSpace(instrumentationVariableValue(variables, InstrumentationLogDir))
+	if dir != "" {
+		cmd.Dir = dir
+	}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 

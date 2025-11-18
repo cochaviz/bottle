@@ -18,6 +18,9 @@ const (
 	InstrumentationVMIP        InstrumentationVariableName = "VmIp"
 	InstrumentationVMInterface InstrumentationVariableName = "VmInterface"
 	InstrumentationSampleName  InstrumentationVariableName = "SampleName"
+	InstrumentationStartTime   InstrumentationVariableName = "StartTime"
+	InstrumentationRunDir      InstrumentationVariableName = "RunDir"
+	InstrumentationLogDir      InstrumentationVariableName = "LogDir"
 )
 
 type cliInstrumentationConfigList []*CLIInstrumentationConfig

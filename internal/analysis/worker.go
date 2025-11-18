@@ -1,23 +1,27 @@
 package analysis
 
 import (
-	"github.com/cochaviz/bottle/internal/sandbox"
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"path"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/cochaviz/bottle/internal/sandbox"
 )
 
 const (
-	sampleExecutionTimeout = 2 * time.Minute
-	sandboxLifetime        = 5 * time.Minute
-	instrumentationWarmup  = 5 * time.Second
-	postSampleDelay        = 5 * time.Second
+	sampleExecutionTimeout         = 2 * time.Minute
+	sandboxLifetime                = 5 * time.Minute
+	instrumentationWarmup          = 5 * time.Second
+	postSampleDelay                = 5 * time.Second
+	instrumentationStartTimeFormat = "20060102T150405Z"
+	instrumentationLogRoot         = "/var/log/bottle"
 )
 
 type Sample struct {
@@ -127,6 +131,7 @@ func (w *AnalysisWorker) Run(ctx context.Context) error {
 	if len(w.instrumentation) > 0 {
 		select {
 		case <-startCh:
+			lease.StartTime = time.Now().UTC()
 		case err := <-workerErr:
 			return fmt.Errorf("sandbox worker failed: %w", err)
 		case <-analysisCtx.Done():
@@ -244,7 +249,7 @@ func (w *AnalysisWorker) configureC2Whitelist(lease sandbox.SandboxLease) (func(
 	}, nil
 }
 
-func (w *AnalysisWorker) instrumentationVariables(ctx context.Context, lease sandbox.SandboxLease) ([]InstrumentationVariable, error) {
+func (w *AnalysisWorker) instrumentationVariables(lease sandbox.SandboxLease) ([]InstrumentationVariable, error) {
 	vmIP, err := leaseVMIP(lease)
 	if err != nil {
 		return nil, err
@@ -260,6 +265,25 @@ func (w *AnalysisWorker) instrumentationVariables(ctx context.Context, lease san
 	if ip := strings.TrimSpace(w.c2Ip); ip != "" {
 		vars = append(vars, InstrumentationVariable{Name: InstrumentationC2Address, Value: ip})
 	}
+	start := lease.StartTime
+	if start.IsZero() {
+		start = time.Now().UTC()
+	}
+	startValue := start.Format(instrumentationStartTimeFormat)
+	vars = append(vars, InstrumentationVariable{
+		Name:  InstrumentationStartTime,
+		Value: startValue,
+	})
+	if runDir := strings.TrimSpace(lease.RunDir); runDir != "" {
+		vars = append(vars, InstrumentationVariable{Name: InstrumentationRunDir, Value: runDir})
+	}
+	if sampleName := strings.TrimSpace(w.sample.Name); sampleName != "" && startValue != "" {
+		logDir := filepath.Join(instrumentationLogRoot, fmt.Sprintf("%s-%s", sampleName, startValue))
+		if err := os.MkdirAll(logDir, 0o755); err != nil {
+			return nil, fmt.Errorf("create instrumentation log dir %s: %w", logDir, err)
+		}
+		vars = append(vars, InstrumentationVariable{Name: InstrumentationLogDir, Value: logDir})
+	}
 	return vars, nil
 }
 
@@ -267,7 +291,7 @@ func (w *AnalysisWorker) startInstrumentation(ctx context.Context, lease sandbox
 	if len(w.instrumentation) == 0 {
 		return nil, nil
 	}
-	vars, err := w.instrumentationVariables(ctx, lease)
+	vars, err := w.instrumentationVariables(lease)
 	if err != nil {
 		return nil, err
 	}

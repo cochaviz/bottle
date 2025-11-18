@@ -68,6 +68,10 @@ func (i *CommandLineInstrumentation) Start(ctx context.Context, lease sandbox.Sa
 
 	ctx, cancel := context.WithCancel(ctx)
 	cmd := exec.CommandContext(ctx, "sh", "-c", command)
+	dir := strings.TrimSpace(instrumentationVariableValue(variables, InstrumentationLogDir))
+	if dir != "" {
+		cmd.Dir = dir
+	}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
