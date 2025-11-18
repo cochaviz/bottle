@@ -89,7 +89,7 @@ Instrumentation is defined in YAML files and rendered through Go templates with 
 | `RunDir` | Filesystem path to the temporary lease directory for this run |
 | `LogDir` | Dedicated log path (`/var/log/bottle/<SampleName>-<StartTime>` by default) where instrumentation helpers can emit artifacts |
 
-StartTime, RunDir, and LogDir help you timestamp output and store artifacts near either the lease workspace or the persisted logs. `LogDir` is created after the worker starts (defaulting to `/var/log/bottle/<SampleName>-<StartTime>`) and is used as the instrumentation working directory, so any relative paths that your helpers emit land inside the log workspace while `RunDir` stays available if you need the sandbox state.
+StartTime, RunDir, and LogDir help you timestamp output and store artifacts near either the lease workspace or the persisted logs. `LogDir` is created after the worker starts (defaulting to `/var/log/bottle/<SampleName>-<StartTime>`) and is used as the instrumentation working directory, so any relative paths that your helpers emit land inside the log workspace while `RunDir` stays available if you need the sandbox state. Every run also drops an `analysis-config.json` file inside `LogDir` summarizing the sample path, arguments, C2 address, and timeout configuration for that execution.
 
 Example CLI instrumentation (`configs/tcpdump.yaml`):
 

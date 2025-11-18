@@ -112,7 +112,7 @@ func (i *suricataInstrumentation) Start(ctx context.Context, lease sandbox.Sandb
 	i.cancel = cancel
 
 	cmd := exec.CommandContext(procCtx, i.binary, "-c", i.renderedConfigPath, "-i", vmInterface)
-	dir := instrumentationWorkingDir(lease, variables)
+	dir := strings.TrimSpace(instrumentationVariableValue(variables, InstrumentationLogDir))
 	if dir != "" {
 		cmd.Dir = dir
 	}

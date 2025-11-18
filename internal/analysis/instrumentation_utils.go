@@ -5,19 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"unicode"
-
-	"github.com/cochaviz/bottle/internal/sandbox"
 )
-
-func instrumentationWorkingDir(lease sandbox.SandboxLease, variables []InstrumentationVariable) string {
-	dir := strings.TrimSpace(instrumentationVariableValue(variables, InstrumentationLogDir))
-	if dir == "" {
-		if leaseDir := strings.TrimSpace(lease.RunDir); leaseDir != "" {
-			dir = leaseDir
-		}
-	}
-	return dir
-}
 
 func instrumentationLabelFromCommand(command string) string {
 	fields := strings.Fields(command)

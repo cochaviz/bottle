@@ -2,6 +2,7 @@ package analysis
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -45,6 +46,8 @@ type AnalysisWorker struct {
 	instrumentation        []Instrumentation
 	sampleExecutionTimeout time.Duration
 	sandboxLifetime        time.Duration
+	logDir                 string
+	configWritten          bool
 }
 
 func NewAnalysisWorker(
@@ -151,7 +154,7 @@ func (w *AnalysisWorker) Run(ctx context.Context) error {
 			return analysisCtx.Err()
 		}
 
-		instCleanup, err := w.startInstrumentation(analysisCtx, lease)
+		instCleanup, err := w.startInstrumentation(analysisCtx, &lease)
 		if err != nil {
 			releaseLease()
 			return err
@@ -164,6 +167,12 @@ func (w *AnalysisWorker) Run(ctx context.Context) error {
 		waitWithContext(analysisCtx, instrumentationWarmup, func() {
 			w.logger.Info("instrumentation warm-up complete")
 		})
+	}
+
+	if _, err := w.ensureLogDir(&lease); err != nil {
+		w.logger.Warn("failed to prepare log directory", "error", err)
+	} else {
+		w.writeAnalysisConfig(lease)
 	}
 
 	w.dispatchSampleExecution(analysisCtx, sandboxWorker, sampleDir)
@@ -268,12 +277,12 @@ func (w *AnalysisWorker) configureC2Whitelist(lease sandbox.SandboxLease) (func(
 	}, nil
 }
 
-func (w *AnalysisWorker) instrumentationVariables(lease sandbox.SandboxLease) ([]InstrumentationVariable, error) {
-	vmIP, err := leaseVMIP(lease)
+func (w *AnalysisWorker) instrumentationVariables(lease *sandbox.SandboxLease) ([]InstrumentationVariable, error) {
+	vmIP, err := leaseVMIP(*lease)
 	if err != nil {
 		return nil, err
 	}
-	vmInterface, err := leaseVMInterface(lease)
+	vmInterface, err := leaseVMInterface(*lease)
 	if err != nil {
 		return nil, err
 	}
@@ -287,6 +296,7 @@ func (w *AnalysisWorker) instrumentationVariables(lease sandbox.SandboxLease) ([
 	start := lease.StartTime
 	if start.IsZero() {
 		start = time.Now().UTC()
+		lease.StartTime = start
 	}
 	startValue := start.Format(instrumentationStartTimeFormat)
 	vars = append(vars, InstrumentationVariable{
@@ -296,17 +306,15 @@ func (w *AnalysisWorker) instrumentationVariables(lease sandbox.SandboxLease) ([
 	if runDir := strings.TrimSpace(lease.RunDir); runDir != "" {
 		vars = append(vars, InstrumentationVariable{Name: InstrumentationRunDir, Value: runDir})
 	}
-	if sampleName := strings.TrimSpace(w.sample.Name); sampleName != "" && startValue != "" {
-		logDir := filepath.Join(instrumentationLogRoot, fmt.Sprintf("%s-%s", sampleName, startValue))
-		if err := os.MkdirAll(logDir, 0o755); err != nil {
-			return nil, fmt.Errorf("create instrumentation log dir %s: %w", logDir, err)
-		}
-		vars = append(vars, InstrumentationVariable{Name: InstrumentationLogDir, Value: logDir})
+	logDir, err := w.ensureLogDir(lease)
+	if err != nil {
+		return nil, err
 	}
+	vars = append(vars, InstrumentationVariable{Name: InstrumentationLogDir, Value: logDir})
 	return vars, nil
 }
 
-func (w *AnalysisWorker) startInstrumentation(ctx context.Context, lease sandbox.SandboxLease) (func(), error) {
+func (w *AnalysisWorker) startInstrumentation(ctx context.Context, lease *sandbox.SandboxLease) (func(), error) {
 	if len(w.instrumentation) == 0 {
 		return nil, nil
 	}
@@ -318,7 +326,7 @@ func (w *AnalysisWorker) startInstrumentation(ctx context.Context, lease sandbox
 		if inst == nil {
 			continue
 		}
-		if err := inst.Start(ctx, lease, vars...); err != nil {
+		if err := inst.Start(ctx, *lease, vars...); err != nil {
 			return nil, fmt.Errorf("start instrumentation: %w", err)
 		}
 	}
@@ -371,4 +379,68 @@ func waitWithContext(ctx context.Context, d time.Duration, onComplete func()) {
 		}
 	case <-ctx.Done():
 	}
+}
+
+func (w *AnalysisWorker) ensureLogDir(lease *sandbox.SandboxLease) (string, error) {
+	if s := strings.TrimSpace(w.logDir); s != "" {
+		return s, nil
+	}
+	start := lease.StartTime
+	if start.IsZero() {
+		start = time.Now().UTC()
+		lease.StartTime = start
+	}
+	name := strings.TrimSpace(w.sample.Name)
+	if name == "" {
+		name = "sample"
+	}
+	dirName := fmt.Sprintf("%s-%s", name, start.Format(instrumentationStartTimeFormat))
+	logDir := filepath.Join(instrumentationLogRoot, dirName)
+	if err := os.MkdirAll(logDir, 0o755); err != nil {
+		return "", fmt.Errorf("create instrumentation log dir %s: %w", logDir, err)
+	}
+	w.logDir = logDir
+	return logDir, nil
+}
+
+func (w *AnalysisWorker) writeAnalysisConfig(lease sandbox.SandboxLease) {
+	if strings.TrimSpace(w.logDir) == "" || w.configWritten {
+		return
+	}
+	cfg := struct {
+		SampleName             string        `json:"sample_name"`
+		SamplePath             string        `json:"sample_path"`
+		SampleArgs             []string      `json:"sample_args"`
+		C2Address              string        `json:"c2_address,omitempty"`
+		ArchOverride           string        `json:"arch_override,omitempty"`
+		StartTime              time.Time     `json:"start_time"`
+		RunDir                 string        `json:"run_dir"`
+		LogDir                 string        `json:"log_dir"`
+		SampleExecutionTimeout time.Duration `json:"sample_execution_timeout"`
+		SandboxLifetime        time.Duration `json:"sandbox_lifetime"`
+		InstrumentationCount   int           `json:"instrumentation_count"`
+	}{
+		SampleName:             w.sample.Name,
+		SamplePath:             w.sample.Artifact,
+		SampleArgs:             append([]string(nil), w.sampleArgs...),
+		C2Address:              strings.TrimSpace(w.c2Ip),
+		ArchOverride:           strings.TrimSpace(w.archOverride),
+		StartTime:              lease.StartTime,
+		RunDir:                 lease.RunDir,
+		LogDir:                 w.logDir,
+		SampleExecutionTimeout: w.sampleExecutionTimeout,
+		SandboxLifetime:        w.sandboxLifetime,
+		InstrumentationCount:   len(w.instrumentation),
+	}
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		w.logger.Warn("failed to marshal analysis config", "error", err)
+		return
+	}
+	path := filepath.Join(w.logDir, "analysis-config.json")
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		w.logger.Warn("failed to write analysis config", "error", err)
+		return
+	}
+	w.configWritten = true
 }
