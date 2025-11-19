@@ -87,11 +87,11 @@ Requires=libvirtd.service
 
 [Service]
 Type=simple
-User=bottle
-Group=bottle
+User=root
+Group=root
 # Keep the socket path in one place so `ExecStart` stays readable.
 Environment="BOTTLE_SOCKET=/var/run/bottle/daemon.sock"
-ExecStart=/usr/local/bin/bottle daemon serve --socket ${BOTTLE_SOCKET} --run-dir /var/bottle/leases
+ExecStart=/root/go/bin/bottle daemon serve --socket ${BOTTLE_SOCKET}
 Restart=on-failure
 RestartSec=5s
 RuntimeDirectory=bottle
