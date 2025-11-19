@@ -83,10 +83,37 @@ type Instrumentation interface {
 
 	// Close closes the instrumentation.
 	Close() error
+
+	// Name returns a short identifier for logging or user feedback.
+	Name() string
+
+	// RequiredVariables lists the variables that must have non-empty values before
+	// the instrumentation may be started.
+	RequiredVariables() []InstrumentationVariableName
+
+	// Running returns nil when the instrumentation is still running, or an error
+	// when it has exited unexpectedly.
+	Running() error
 }
 
 type InstrumentationConfig interface {
 	Parse() (Instrumentation, error)
+}
+
+type MissingRequiredVariablesError struct {
+	Instrumentation string
+	Missing         []InstrumentationVariableName
+}
+
+func (e *MissingRequiredVariablesError) Error() string {
+	if e == nil {
+		return ""
+	}
+	name := strings.TrimSpace(e.Instrumentation)
+	if name == "" {
+		name = "instrumentation"
+	}
+	return fmt.Sprintf("%s missing required variables: %s", name, strings.Join(e.Missing, ", "))
 }
 
 func instrumentationTemplateData(variables []InstrumentationVariable) map[string]string {
@@ -117,6 +144,37 @@ func instrumentationCloseError(err error) error {
 		return nil
 	}
 	return fmt.Errorf("instrumentation command exited: %w", err)
+}
+
+func ensureRequiredInstrumentationVariables(vars []InstrumentationVariable, required []InstrumentationVariableName, name string) error {
+	if len(required) == 0 {
+		return nil
+	}
+	missing := missingRequiredVariables(vars, required)
+	if len(missing) == 0 {
+		return nil
+	}
+	return &MissingRequiredVariablesError{
+		Instrumentation: name,
+		Missing:         missing,
+	}
+}
+
+func missingRequiredVariables(vars []InstrumentationVariable, required []InstrumentationVariableName) []InstrumentationVariableName {
+	if len(required) == 0 {
+		return nil
+	}
+	var missing []InstrumentationVariableName
+	for _, name := range required {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if instrumentationVariableValue(vars, name) == "" {
+			missing = append(missing, name)
+		}
+	}
+	return missing
 }
 
 func LoadInstrumentation(path string) ([]Instrumentation, error) {

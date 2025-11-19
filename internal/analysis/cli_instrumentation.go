@@ -10,22 +10,16 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"text/template"
 
 	"github.com/cochaviz/bottle/internal/sandbox"
 )
 
-type CommandLineInstrumentation struct {
-	template   *template.Template
-	cancel     context.CancelFunc
-	done       chan error
-	outputMode string
-	logFile    *os.File
-}
-
 type CLIInstrumentationConfig struct {
-	Command string `yaml:"command"`
-	Output  string `yaml:"output,omitempty"`
+	Command  string                        `yaml:"command"`
+	Output   string                        `yaml:"output,omitempty"`
+	Requires []InstrumentationVariableName `yaml:"requires"`
 }
 
 func (c *CLIInstrumentationConfig) Parse() (Instrumentation, error) {
@@ -33,6 +27,18 @@ func (c *CLIInstrumentationConfig) Parse() (Instrumentation, error) {
 		return nil, fmt.Errorf("CLIConfig cannot be nil")
 	}
 	return NewCommandLineInstrumentation(c)
+}
+
+type CommandLineInstrumentation struct {
+	template   *template.Template
+	cancel     context.CancelFunc
+	done       chan struct{}
+	outputMode string
+	logFile    *os.File
+	requires   []InstrumentationVariableName
+	name       string
+	runErr     error
+	mu         sync.Mutex
 }
 
 func NewCommandLineInstrumentation(cfg *CLIInstrumentationConfig) (*CommandLineInstrumentation, error) {
@@ -51,15 +57,33 @@ func NewCommandLineInstrumentation(cfg *CLIInstrumentationConfig) (*CommandLineI
 	if err != nil {
 		return nil, err
 	}
+	name := instrumentationLabelFromCommand(commandTemplate)
+	if name == "" {
+		name = "cli"
+	}
+	var requires []InstrumentationVariableName
+	for _, item := range cfg.Requires {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		requires = append(requires, item)
+	}
 	return &CommandLineInstrumentation{
 		template:   tmpl,
 		outputMode: output,
+		requires:   requires,
+		name:       name,
 	}, nil
 }
 
 func (i *CommandLineInstrumentation) Start(ctx context.Context, lease sandbox.SandboxLease, variables ...InstrumentationVariable) error {
 	if i == nil {
 		return nil
+	}
+
+	if err := ensureRequiredInstrumentationVariables(variables, i.requires, i.Name()); err != nil {
+		return err
 	}
 
 	data := instrumentationTemplateData(variables)
@@ -149,9 +173,12 @@ func (i *CommandLineInstrumentation) Start(ctx context.Context, lease sandbox.Sa
 	}
 
 	i.cancel = cancel
-	i.done = make(chan error, 1)
+	i.setRunErr(nil)
+	i.done = make(chan struct{})
 	go func() {
-		i.done <- cmd.Wait()
+		err := cmd.Wait()
+		i.setRunErr(err)
+		close(i.done)
 	}()
 	return nil
 }
@@ -166,14 +193,59 @@ func (i *CommandLineInstrumentation) Close() error {
 	if i.done == nil {
 		return nil
 	}
-	if err := <-i.done; err != nil {
-		if closeErr := instrumentationCloseError(err); closeErr != nil {
-			return closeErr
-		}
+	<-i.done
+	if err := instrumentationCloseError(i.getRunErr()); err != nil {
+		return err
 	}
 	if i.logFile != nil {
 		_ = i.logFile.Close()
 		i.logFile = nil
 	}
 	return nil
+}
+
+func (i *CommandLineInstrumentation) Name() string {
+	if i == nil {
+		return ""
+	}
+	if i.name == "" {
+		return "cli"
+	}
+	return i.name
+}
+
+func (i *CommandLineInstrumentation) RequiredVariables() []InstrumentationVariableName {
+	if i == nil || len(i.requires) == 0 {
+		return nil
+	}
+	result := make([]InstrumentationVariableName, len(i.requires))
+	copy(result, i.requires)
+	return result
+}
+
+func (i *CommandLineInstrumentation) Running() error {
+	if i == nil || i.done == nil {
+		return nil
+	}
+	select {
+	case <-i.done:
+		if err := instrumentationCloseError(i.getRunErr()); err != nil {
+			return err
+		}
+		return errors.New("instrumentation process exited")
+	default:
+		return nil
+	}
+}
+
+func (i *CommandLineInstrumentation) setRunErr(err error) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	i.runErr = err
+}
+
+func (i *CommandLineInstrumentation) getRunErr() error {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	return i.runErr
 }

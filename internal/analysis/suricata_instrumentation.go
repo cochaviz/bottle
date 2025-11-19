@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"text/template"
 
 	"github.com/cochaviz/bottle/internal/sandbox"
@@ -18,9 +19,10 @@ import (
 var _ Instrumentation = (*suricataInstrumentation)(nil)
 
 type SuricataInstrumentationConfig struct {
-	Config string `yaml:"config"`
-	Binary string `yaml:"binary,omitempty"`
-	Output string `yaml:"output,omitempty"`
+	Config   string                        `yaml:"config"`
+	Binary   string                        `yaml:"binary,omitempty"`
+	Output   string                        `yaml:"output,omitempty"`
+	Requires []InstrumentationVariableName `yaml:"requires"`
 }
 
 type suricataInstrumentation struct {
@@ -28,9 +30,13 @@ type suricataInstrumentation struct {
 	binary             string
 	outputMode         string
 	cancel             context.CancelFunc
-	done               chan error
+	done               chan struct{}
 	renderedConfigPath string
 	logFile            *os.File
+	requires           []InstrumentationVariableName
+	name               string
+	runErr             error
+	mu                 sync.Mutex
 }
 
 // NewSuricataInstrumentation loads the specified Suricata config template and returns
@@ -66,16 +72,35 @@ func NewSuricataInstrumentation(cfg *SuricataInstrumentationConfig) (Instrumenta
 		return nil, err
 	}
 
+	var requires []InstrumentationVariableName
+	for _, item := range cfg.Requires {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		requires = append(requires, item)
+	}
+	name := filepath.Base(configPath)
+	name = sanitizeInstrumentationLabel(name)
+	if name == "" {
+		name = "suricata"
+	}
 	return &suricataInstrumentation{
 		configTemplate: tmpl,
 		binary:         binary,
 		outputMode:     outputMode,
+		requires:       requires,
+		name:           name,
 	}, nil
 }
 
 func (i *suricataInstrumentation) Start(ctx context.Context, lease sandbox.SandboxLease, variables ...InstrumentationVariable) error {
 	if i == nil {
 		return nil
+	}
+
+	if err := ensureRequiredInstrumentationVariables(variables, i.requires, i.Name()); err != nil {
+		return err
 	}
 
 	vmInterface := instrumentationVariableValue(variables, InstrumentationVMInterface)
@@ -179,9 +204,12 @@ func (i *suricataInstrumentation) Start(ctx context.Context, lease sandbox.Sandb
 		}()
 	}
 
-	i.done = make(chan error, 1)
+	i.setRunErr(nil)
+	i.done = make(chan struct{})
 	go func() {
-		i.done <- cmd.Wait()
+		err := cmd.Wait()
+		i.setRunErr(err)
+		close(i.done)
 	}()
 	return nil
 }
@@ -194,11 +222,10 @@ func (i *suricataInstrumentation) Close() error {
 		i.cancel()
 	}
 	if i.done != nil {
-		if err := <-i.done; err != nil {
-			if closeErr := instrumentationCloseError(err); closeErr != nil {
-				i.cleanupRenderedConfig()
-				return closeErr
-			}
+		<-i.done
+		if err := instrumentationCloseError(i.getRunErr()); err != nil {
+			i.cleanupRenderedConfig()
+			return err
 		}
 		i.done = nil
 	}
@@ -216,4 +243,50 @@ func (i *suricataInstrumentation) cleanupRenderedConfig() {
 	}
 	_ = os.Remove(i.renderedConfigPath)
 	i.renderedConfigPath = ""
+}
+
+func (i *suricataInstrumentation) Name() string {
+	if i == nil {
+		return ""
+	}
+	if i.name == "" {
+		return "suricata"
+	}
+	return i.name
+}
+
+func (i *suricataInstrumentation) RequiredVariables() []InstrumentationVariableName {
+	if i == nil || len(i.requires) == 0 {
+		return nil
+	}
+	result := make([]InstrumentationVariableName, len(i.requires))
+	copy(result, i.requires)
+	return result
+}
+
+func (i *suricataInstrumentation) Running() error {
+	if i == nil || i.done == nil {
+		return nil
+	}
+	select {
+	case <-i.done:
+		if err := instrumentationCloseError(i.getRunErr()); err != nil {
+			return err
+		}
+		return errors.New("instrumentation process exited")
+	default:
+		return nil
+	}
+}
+
+func (i *suricataInstrumentation) setRunErr(err error) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	i.runErr = err
+}
+
+func (i *suricataInstrumentation) getRunErr() error {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	return i.runErr
 }

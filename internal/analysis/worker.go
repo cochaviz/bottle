@@ -144,6 +144,7 @@ func (w *AnalysisWorker) Run(ctx context.Context) error {
 		workerErr <- sandboxWorker.Run(analysisCtx)
 	}()
 
+	var startedInstrumentation []Instrumentation
 	if len(w.instrumentation) > 0 {
 		select {
 		case <-startCh:
@@ -154,19 +155,30 @@ func (w *AnalysisWorker) Run(ctx context.Context) error {
 			return analysisCtx.Err()
 		}
 
-		instCleanup, err := w.startInstrumentation(analysisCtx, &lease)
+		var instCleanup func()
+		var err error
+		startedInstrumentation, instCleanup, err = w.startInstrumentation(analysisCtx, &lease)
 		if err != nil {
 			releaseLease()
 			return err
 		}
 		if instCleanup != nil {
 			defer instCleanup()
-			w.logger.Info("instrumentation started", "count", len(w.instrumentation))
 		}
+		if len(startedInstrumentation) > 0 {
+			w.logger.Info("instrumentation started", "count", len(startedInstrumentation))
 
-		waitWithContext(analysisCtx, instrumentationWarmup, func() {
-			w.logger.Info("instrumentation warm-up complete")
-		})
+			waitWithContext(analysisCtx, instrumentationWarmup, func() {
+				w.logger.Info("instrumentation warm-up complete")
+			})
+
+			if err := w.ensureInstrumentationRunning(startedInstrumentation); err != nil {
+				releaseLease()
+				return err
+			}
+		} else {
+			w.logger.Info("no instrumentation started after applying requirements")
+		}
 	}
 
 	if _, err := w.ensureLogDir(&lease); err != nil {
@@ -314,33 +326,67 @@ func (w *AnalysisWorker) instrumentationVariables(lease *sandbox.SandboxLease) (
 	return vars, nil
 }
 
-func (w *AnalysisWorker) startInstrumentation(ctx context.Context, lease *sandbox.SandboxLease) (func(), error) {
+func (w *AnalysisWorker) startInstrumentation(ctx context.Context, lease *sandbox.SandboxLease) ([]Instrumentation, func(), error) {
 	if len(w.instrumentation) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	vars, err := w.instrumentationVariables(lease)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	var started []Instrumentation
 	for _, inst := range w.instrumentation {
 		if inst == nil {
 			continue
 		}
 		if err := inst.Start(ctx, *lease, vars...); err != nil {
-			return nil, fmt.Errorf("start instrumentation: %w", err)
+			var missingErr *MissingRequiredVariablesError
+			if errors.As(err, &missingErr) {
+				w.logger.Info("skipping instrumentation due to missing variables",
+					"instrumentation", inst.Name(), "missing", strings.Join(missingErr.Missing, ", "))
+				continue
+			}
+			return nil, nil, fmt.Errorf("start instrumentation %q: %w", inst.Name(), err)
 		}
+		started = append(started, inst)
+	}
+	if len(started) == 0 {
+		return nil, nil, nil
 	}
 	cleanup := func() {
-		for _, inst := range w.instrumentation {
+		for _, inst := range started {
 			if inst == nil {
 				continue
 			}
 			if err := inst.Close(); err != nil {
-				w.logger.Warn("instrumentation close failed", "error", err)
+				w.logger.Warn("instrumentation close failed", "instrumentation", inst.Name(), "error", err)
 			}
 		}
 	}
-	return cleanup, nil
+	return started, cleanup, nil
+}
+
+func (w *AnalysisWorker) ensureInstrumentationRunning(active []Instrumentation) error {
+	if len(active) == 0 {
+		return nil
+	}
+	var failures []string
+	for _, inst := range active {
+		if inst == nil {
+			continue
+		}
+		if err := inst.Running(); err != nil {
+			name := strings.TrimSpace(inst.Name())
+			if name == "" {
+				name = "instrumentation"
+			}
+			failures = append(failures, fmt.Sprintf("%s: %v", name, err))
+		}
+	}
+	if len(failures) > 0 {
+		return fmt.Errorf("instrumentation not running after warm-up: %s", strings.Join(failures, "; "))
+	}
+	return nil
 }
 
 func leaseVMInterface(lease sandbox.SandboxLease) (string, error) {

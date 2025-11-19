@@ -2,6 +2,7 @@ package analysis
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -51,5 +52,76 @@ func TestLoadInstrumentationMissingCommand(t *testing.T) {
 
 	if _, err := LoadInstrumentation(configPath); err == nil {
 		t.Fatal("LoadInstrumentation() error = nil, want non-nil")
+	}
+}
+
+func TestBlockCommand(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "instr.yaml")
+	config := `cli:
+- command: |
+    echo "This is \\
+    a multi-line command"
+`
+	if err := os.WriteFile(configPath, []byte(config), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	insts, err := LoadInstrumentation(configPath)
+	if err != nil {
+		t.Fatalf("LoadInstrumentation() error = %v", err)
+	}
+	if insts == nil {
+		t.Fatal("LoadInstrumentation() = nil, want instrumentation")
+	}
+
+	if len(insts) > 1 {
+		t.Fatal("Only one instrumentation defined")
+	}
+
+	inst := insts[0]
+
+	if err := inst.Start(context.Background(), sandbox.SandboxLease{}); err != nil {
+		t.Fatalf("instrumentation start error = %v", err)
+	}
+	if err := inst.Close(); err != nil {
+		t.Fatalf("instrumentation close error = %v", err)
+	}
+
+}
+
+func TestCommandLineInstrumentationRequiresVariables(t *testing.T) {
+	t.Parallel()
+
+	cfg := &CLIInstrumentationConfig{
+		Command:  "echo instrumentation",
+		Requires: []InstrumentationVariableName{InstrumentationC2Address},
+	}
+	inst, err := NewCommandLineInstrumentation(cfg)
+	if err != nil {
+		t.Fatalf("NewCommandLineInstrumentation() error = %v", err)
+	}
+
+	ctx := context.Background()
+
+	if err := inst.Start(ctx, sandbox.SandboxLease{}); err == nil {
+		t.Fatal("Start() error = nil, want MissingRequiredVariablesError")
+	} else {
+		var miss *MissingRequiredVariablesError
+		if !errors.As(err, &miss) {
+			t.Fatalf("Start() error = %v, want MissingRequiredVariablesError", err)
+		}
+	}
+
+	vars := []InstrumentationVariable{
+		{Name: InstrumentationC2Address, Value: "203.0.113.2"},
+	}
+	if err := inst.Start(ctx, sandbox.SandboxLease{}, vars...); err != nil {
+		t.Fatalf("Start() with required vars error = %v", err)
+	}
+	if err := inst.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
 	}
 }

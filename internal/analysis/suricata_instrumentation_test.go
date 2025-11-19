@@ -2,6 +2,7 @@ package analysis
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -81,5 +82,62 @@ vars:
 
 	if err := inst.Close(); err != nil {
 		t.Fatalf("suricata instrumentation close error = %v", err)
+	}
+}
+
+func TestSuricataInstrumentationRequiresVariables(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "suricata.yaml")
+	configContent := `
+sensor-name: "{{ .SampleName }}"
+vars:
+  vm: "{{ .VmIp }}"
+  iface: "{{ .VmInterface }}"
+  c2: "{{ .C2Ip }}"
+`
+	if err := os.WriteFile(configPath, []byte(configContent), 0o644); err != nil {
+		t.Fatalf("write suricata config template: %v", err)
+	}
+
+	runnerPath := filepath.Join(tmpDir, "runner.sh")
+	if err := os.WriteFile(runnerPath, []byte("#!/bin/sh\nsleep 60\n"), 0o755); err != nil {
+		t.Fatalf("write runner: %v", err)
+	}
+
+	cfg := &SuricataInstrumentationConfig{
+		Config:   configPath,
+		Binary:   runnerPath,
+		Requires: []InstrumentationVariableName{InstrumentationC2Address},
+	}
+	instIface, err := NewSuricataInstrumentation(cfg)
+	if err != nil {
+		t.Fatalf("NewSuricataInstrumentation() error = %v", err)
+	}
+
+	vars := []InstrumentationVariable{
+		{Name: InstrumentationSampleName, Value: "beacon.bin"},
+		{Name: InstrumentationVMIP, Value: "10.13.37.50"},
+		{Name: InstrumentationVMInterface, Value: "veth-sample"},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := instIface.Start(ctx, sandbox.SandboxLease{}, vars...); err == nil {
+		t.Fatal("Start() error = nil, want MissingRequiredVariablesError")
+	} else {
+		var miss *MissingRequiredVariablesError
+		if !errors.As(err, &miss) {
+			t.Fatalf("Start() error = %v, want MissingRequiredVariablesError", err)
+		}
+	}
+
+	vars = append(vars, InstrumentationVariable{Name: InstrumentationC2Address, Value: "203.0.113.2"})
+	if err := instIface.Start(ctx, sandbox.SandboxLease{}, vars...); err != nil {
+		t.Fatalf("Start() with required vars error = %v", err)
+	}
+	if err := instIface.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
 	}
 }
