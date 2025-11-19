@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/cochaviz/bottle/internal/sandbox"
 )
@@ -123,5 +124,61 @@ func TestCommandLineInstrumentationRequiresVariables(t *testing.T) {
 	}
 	if err := inst.Close(); err != nil {
 		t.Fatalf("Close() error = %v", err)
+	}
+}
+
+func TestCommandLineInstrumentationMultiLineCommand(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "instr.yaml")
+	logDir := t.TempDir()
+	config := `cli:
+- command: |
+    echo "hey" >> "{{ .LogDir }}/multiline.log"
+    echo "I am" >> "{{ .LogDir }}/multiline.log"
+    echo "multiline" >> "{{ .LogDir }}/multiline.log"
+`
+	if err := os.WriteFile(configPath, []byte(config), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	insts, err := LoadInstrumentation(configPath)
+	if err != nil {
+		t.Fatalf("LoadInstrumentation() error = %v", err)
+	}
+	if len(insts) != 1 {
+		t.Fatalf("LoadInstrumentation() != 1 instrumentation, got %d", len(insts))
+	}
+
+	inst := insts[0]
+	vars := []InstrumentationVariable{
+		{Name: InstrumentationLogDir, Value: logDir},
+	}
+
+	if err := inst.Start(context.Background(), sandbox.SandboxLease{}, vars...); err != nil {
+		t.Fatalf("instrumentation start error = %v", err)
+	}
+
+	logPath := filepath.Join(logDir, "multiline.log")
+	var data []byte
+	var readErr error
+	deadline := time.Now().Add(time.Second)
+	for {
+		data, readErr = os.ReadFile(logPath)
+		if readErr == nil {
+			break
+		}
+		if !os.IsNotExist(readErr) || time.Now().After(deadline) {
+			t.Fatalf("read multiline log: %v", readErr)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	want := "hey\nI am\nmultiline\n"
+	if string(data) != want {
+		t.Fatalf("unexpected multiline log content: %q, want %q", string(data), want)
+	}
+	if err := inst.Close(); err != nil {
+		t.Fatalf("instrumentation close error = %v", err)
 	}
 }
