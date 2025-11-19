@@ -76,6 +76,33 @@ bottle daemon stop <id>
 The daemon accepts the same flag set as `analysis run` and is ideal for long-running automation or remote clients that only need socket access.
 `bottle daemon list` now shows the sample path and C2 IP (when supplied via `--c2`) so you can see exactly which beacon each worker is pointing at before deciding to stop or restart it.
 
+### Example systemd service
+When you want the daemon to restart automatically on boot or after an unexpected crash, drop a service definition such as the one below into `/etc/systemd/system/bottled.service` (adjust the binary path, user, sockets, and directories for your host):
+
+```ini
+[Unit]
+Description=Bottle sandbox daemon
+After=network-online.target libvirtd.service
+Requires=libvirtd.service
+
+[Service]
+Type=simple
+User=bottle
+Group=bottle
+# Keep the socket path in one place so `ExecStart` stays readable.
+Environment="BOTTLE_SOCKET=/var/run/bottle/daemon.sock"
+ExecStart=/usr/local/bin/bottle daemon serve --socket ${BOTTLE_SOCKET} --run-dir /var/bottle/leases
+Restart=on-failure
+RestartSec=5s
+RuntimeDirectory=bottle
+RuntimeDirectoryMode=0750
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Reload systemd (`sudo systemctl daemon-reload`), then enable and start it with `sudo systemctl enable --now bottled`. Combine this with the CLI commands above to schedule analyses from any machine that can reach the daemon socket.
+
 ## Instrumentation
 Instrumentation is defined in YAML files and rendered through Go templates with these variables:
 
