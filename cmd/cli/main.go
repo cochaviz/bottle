@@ -15,8 +15,8 @@ import (
 	"github.com/spf13/cobra"
 
 	config "github.com/cochaviz/bottle/config"
+	daemon "github.com/cochaviz/bottle/daemon"
 	"github.com/cochaviz/bottle/internal/analysis"
-	"github.com/cochaviz/bottle/internal/daemon"
 	"github.com/cochaviz/bottle/internal/logging"
 	"github.com/cochaviz/bottle/internal/setup"
 )
