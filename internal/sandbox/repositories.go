@@ -6,4 +6,6 @@ type ImageRepository interface {
 	LatestForSpec(specID string) (*SandboxImage, error)
 	FilterByArchitecture(architecture string) ([]*SandboxImage, error)
 	Get(imageID string) (*SandboxImage, error)
+	ListForSpec(specID string) ([]*SandboxImage, error)
+	Delete(imageID string) error
 }

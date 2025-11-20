@@ -29,6 +29,12 @@ var DefaultRunDir = filepath.Join(setup.StorageDir, "leases")
 var DefaultSpecificationDir = filepath.Join(setup.StorageDir, "specifications")
 var DefaultConnectionURI = "qemu:///system"
 
+type SandboxListResult struct {
+	SpecificationID string
+	Built           bool
+	Images          []sandbox.SandboxImage
+}
+
 // BuildSandbox executes the end-to-end flow to produce an image for the requested specification using the provided logger.
 func BuildSandbox(specificationID, imageDir, artifactDir, libvirtConnectionURI string, logger *slog.Logger) error {
 	logger = logging.Ensure(logger).With("component", "config.simple")
@@ -87,7 +93,7 @@ func BuildSandbox(specificationID, imageDir, artifactDir, libvirtConnectionURI s
 }
 
 // List prints the available specifications and whether an image exists locally.
-func List(imageDir string) ([]string, []bool, error) {
+func List(imageDir string, includeAll bool) ([]SandboxListResult, error) {
 	if imageDir == "" {
 		imageDir = DefaultImageDir
 	}
@@ -98,23 +104,40 @@ func List(imageDir string) ([]string, []bool, error) {
 	specifications, err := specificationRepository.ListAll()
 
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	built := make([]bool, len(specifications))
-	specIDs := make([]string, len(specifications))
+	entries := make([]SandboxListResult, 0, len(specifications))
 
-	for i, specification := range specifications {
-		specIDs[i] = specification.ID
-		latestImage, err := imageRepository.LatestForSpec(specification.ID)
-
-		if err != nil {
-			return nil, nil, err
+	for _, specification := range specifications {
+		entry := SandboxListResult{
+			SpecificationID: specification.ID,
 		}
-		built[i] = (latestImage != nil)
+
+		if includeAll {
+			images, err := imageRepository.ListForSpec(specification.ID)
+			if err != nil {
+				return nil, err
+			}
+			entry.Built = len(images) > 0
+			if len(images) > 0 {
+				entry.Images = make([]sandbox.SandboxImage, len(images))
+				for i, img := range images {
+					entry.Images[i] = *img
+				}
+			}
+		} else {
+			latestImage, err := imageRepository.LatestForSpec(specification.ID)
+			if err != nil {
+				return nil, err
+			}
+			entry.Built = (latestImage != nil)
+		}
+
+		entries = append(entries, entry)
 	}
 
-	return specIDs, built, nil
+	return entries, nil
 }
 
 // RunSandbox acquires and runs a sandbox until the provided context is cancelled or the domain stops.
@@ -171,6 +194,43 @@ func RunSandbox(
 	logger.Info("sandbox lease acquired", "lease_id", lease.ID)
 
 	return worker.Run(ctx)
+}
+
+// RemoveSandboxImage deletes the sandbox image metadata and its qcow2 artifact.
+func RemoveSandboxImage(imageID, imageDir, artifactDir string, logger *slog.Logger) error {
+	logger = logging.Ensure(logger).With("component", "config.simple", "operation", "remove")
+
+	imageID = strings.TrimSpace(imageID)
+	if imageID == "" {
+		return fmt.Errorf("image id is required")
+	}
+	if imageDir == "" {
+		imageDir = DefaultImageDir
+	}
+	if artifactDir == "" {
+		artifactDir = DefaultArtifactDir
+	}
+
+	imageRepository := &images.LocalImageRepository{BaseDir: imageDir}
+	image, err := imageRepository.Get(imageID)
+	if err != nil {
+		return fmt.Errorf("load image %s: %w", imageID, err)
+	}
+	if image == nil {
+		return fmt.Errorf("image %s not found in %s", imageID, imageDir)
+	}
+
+	artifactStore := &artifacts.LocalArtifactStore{BaseDir: artifactDir}
+	if err := artifactStore.RemoveArtifact(image.ImageArtifact); err != nil {
+		return fmt.Errorf("remove image artifact: %w", err)
+	}
+
+	if err := imageRepository.Delete(imageID); err != nil {
+		return fmt.Errorf("remove image metadata: %w", err)
+	}
+
+	logger.Info("sandbox image removed", "image_id", imageID)
+	return nil
 }
 
 // RunAnalysis executes the analysis workflow for the provided sample file.

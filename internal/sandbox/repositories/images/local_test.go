@@ -1,6 +1,7 @@
 package images
 
 import (
+	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -66,6 +67,56 @@ func TestLocalImageRepositoryLatestForSpecMissingDir(t *testing.T) {
 	}
 	if got != nil {
 		t.Fatalf("LatestForSpec() = %+v, want nil", got)
+	}
+}
+
+func TestLocalImageRepositoryListForSpec(t *testing.T) {
+	t.Parallel()
+
+	repo := LocalImageRepository{BaseDir: t.TempDir()}
+	images := []sandbox.SandboxImage{
+		newTestImage("img-new", "spec-a", time.Unix(1_800_000_000, 0)),
+		newTestImage("img-old", "spec-a", time.Unix(1_700_000_000, 0)),
+		newTestImage("img-other", "spec-b", time.Unix(1_750_000_000, 0)),
+	}
+
+	for _, img := range images {
+		if err := repo.Save(img); err != nil {
+			t.Fatalf("Save(%q) error = %v", img.ID, err)
+		}
+	}
+
+	got, err := repo.ListForSpec("spec-a")
+	if err != nil {
+		t.Fatalf("ListForSpec() error = %v", err)
+	}
+
+	if len(got) != 2 || got[0].ID != "img-new" || got[1].ID != "img-old" {
+		t.Fatalf("ListForSpec() = %+v, want img-new then img-old", got)
+	}
+}
+
+func TestLocalImageRepositoryDelete(t *testing.T) {
+	t.Parallel()
+
+	repo := LocalImageRepository{BaseDir: t.TempDir()}
+	image := newTestImage("img-delete", "spec-x", time.Unix(1_700_000_000, 0))
+
+	if err := repo.Save(image); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	path := filepath.Join(repo.BaseDir, image.ID+".json")
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("saved image metadata not found: %v", err)
+	}
+
+	if err := repo.Delete(image.ID); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("Delete() did not remove metadata, err = %v", err)
 	}
 }
 

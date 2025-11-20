@@ -99,6 +99,7 @@ func newSandboxCommand(logger *slog.Logger) *cobra.Command {
 		newSandboxBuildCommand(logger),
 		newSandboxRunCommand(logger),
 		newSandboxListCommand(logger),
+		newSandboxRemoveCommand(logger),
 	)
 	return cmd
 }
@@ -193,7 +194,10 @@ func newSandboxRunCommand(logger *slog.Logger) *cobra.Command {
 }
 
 func newSandboxListCommand(logger *slog.Logger) *cobra.Command {
-	var imageDir string
+	var (
+		imageDir string
+		showAll  bool
+	)
 
 	cmd := &cobra.Command{
 		Use:   "list",
@@ -207,27 +211,71 @@ func newSandboxListCommand(logger *slog.Logger) *cobra.Command {
 
 			cmdLogger.Info("listing specifications", "image_dir", imageDir)
 
-			specs, built, err := config.List(imageDir)
+			entries, err := config.List(imageDir, showAll)
 			if err != nil {
 				cmdLogger.Error("listing specifications failed", "error", err)
 				return err
 			}
 
-			if len(specs) == 0 {
+			if len(entries) == 0 {
 				cmdLogger.Warn("no specifications available", "image_dir", imageDir)
 				return nil
 			}
 
-			for i, spec := range specs {
-				fmt.Printf("%s\t(built: %t)\n", spec, built[i])
+			for _, entry := range entries {
+				fmt.Printf("%s\t(built: %t)\n", entry.SpecificationID, entry.Built)
+				if showAll && len(entry.Images) > 0 {
+					for _, image := range entry.Images {
+						fmt.Printf("  - %s\tcreated: %s\n", image.ID, image.CreatedAt.Format(time.RFC3339))
+					}
+				}
 			}
 
-			cmdLogger.Info("listed specifications", "count", len(specs))
+			cmdLogger.Info("listed specifications", "count", len(entries))
 			return nil
 		},
 	}
 
 	cmd.Flags().StringVar(&imageDir, "image-dir", config.DefaultImageDir, "Directory where images are stored")
+	cmd.Flags().BoolVar(&showAll, "all", false, "Show all versions for each specification")
+
+	return cmd
+}
+
+func newSandboxRemoveCommand(logger *slog.Logger) *cobra.Command {
+	var (
+		imageDir    string
+		artifactDir string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "remove <image-id>",
+		Args:  cobra.ExactArgs(1),
+		Short: "Remove a sandbox image and its qcow2 artifact",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			imageID := strings.TrimSpace(args[0])
+			if imageID == "" {
+				return fmt.Errorf("image id is required")
+			}
+
+			cmdLogger := logger.With("command", "sandbox.remove", "image", imageID)
+			if err := verifySetup(cmdLogger); err != nil {
+				return err
+			}
+
+			cmdLogger.Info("removing sandbox image", "image_dir", imageDir, "artifact_dir", artifactDir)
+			if err := config.RemoveSandboxImage(imageID, imageDir, artifactDir, cmdLogger); err != nil {
+				cmdLogger.Error("remove failed", "error", err)
+				return err
+			}
+
+			cmdLogger.Info("sandbox image removed")
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&imageDir, "image-dir", config.DefaultImageDir, "Directory where image metadata are stored")
+	cmd.Flags().StringVar(&artifactDir, "artifact-dir", config.DefaultArtifactDir, "Directory where image artifacts are stored")
 
 	return cmd
 }

@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/cochaviz/bottle/internal/sandbox"
@@ -121,6 +122,60 @@ func (rep *LocalImageRepository) FilterByArchitecture(architecture string) ([]*s
 	}
 
 	return filteredImages, nil
+}
+
+func (rep *LocalImageRepository) ListForSpec(specID string) ([]*sandbox.SandboxImage, error) {
+	if specID == "" {
+		return nil, errors.New("specification id is required")
+	}
+
+	entries, err := os.ReadDir(rep.BaseDir)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	images := []*sandbox.SandboxImage{}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		image, err := rep.loadImage(filepath.Join(rep.BaseDir, entry.Name()))
+		if err != nil {
+			return nil, err
+		}
+
+		if image == nil || image.ReferenceSpecification.ID != specID {
+			continue
+		}
+		images = append(images, image)
+	}
+
+	sort.Slice(images, func(i, j int) bool {
+		return images[i].CreatedAt.After(images[j].CreatedAt)
+	})
+
+	return images, nil
+}
+
+func (rep *LocalImageRepository) Delete(imageID string) error {
+	if rep.BaseDir == "" {
+		return errors.New("base directory is not configured")
+	}
+	if imageID == "" {
+		return errors.New("image id is required")
+	}
+
+	path := filepath.Join(rep.BaseDir, imageID+".json")
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+
+	return nil
 }
 
 func (rep *LocalImageRepository) loadImage(path string) (*sandbox.SandboxImage, error) {
