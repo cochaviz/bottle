@@ -11,12 +11,20 @@ import (
 
 const DefaultSocketPath = "/var/run/bottle/daemon.sock"
 
+type DaemonClient interface {
+	StartAnalysis(req StartAnalysisRequest) (string, error)
+	StopAnalysis(id string) error
+	Inspect(id string) (WorkerDetails, error)
+	List() ([]WorkerStatus, error)
+	CleanupInactive() (int, error)
+}
+
 type Client struct {
 	socketPath string
 	timeout    time.Duration
 }
 
-func NewClient(socketPath string) *Client {
+func NewClient(socketPath string) DaemonClient {
 	socketPath = strings.TrimSpace(socketPath)
 	if socketPath == "" {
 		socketPath = DefaultSocketPath
