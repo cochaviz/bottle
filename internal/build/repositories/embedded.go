@@ -141,7 +141,7 @@ func defaultSpecs() []build.BuildSpecification {
 			"https://ftp.debian.org/debian/dists/bookworm/main/installer-i386/current/images/netboot/debian-installer/i386/linux",
 			"https://ftp.debian.org/debian/dists/bookworm/main/installer-i386/current/images/netboot/debian-installer/i386/initrd.gz",
 			sandbox.DomainProfile{
-				Arch:         "i386",
+				Arch:         "i686",
 				Machine:      strPtr("pc"),
 				CPUModel:     strPtr("qemu32"),
 				VCPUs:        1,

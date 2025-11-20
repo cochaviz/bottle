@@ -514,6 +514,8 @@ func canonicalizeArch(arch string) string {
 	switch normalized {
 	case "x86_64", "amd64":
 		return "x86_64"
+	case "i386", "i686", "x86":
+		return "i686"
 	case "arm64", "aarch64":
 		return "aarch64"
 	case "armhf":
