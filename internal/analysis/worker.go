@@ -202,7 +202,11 @@ func (w *AnalysisWorker) dispatchSampleExecution(ctx context.Context, worker *sa
 		relativePath = filepath.Base(w.sample.Artifact)
 	}
 	relativePath = filepath.ToSlash(relativePath)
-	guestSamplePath := path.Join(sandbox.GuestSampleMountPath, relativePath)
+	isoRelativePath := iso9660RelativePath(relativePath)
+	if isoRelativePath == "" {
+		isoRelativePath = relativePath
+	}
+	guestSamplePath := path.Join(sandbox.GuestSampleMountPath, isoRelativePath)
 
 	stopOnce := sync.Once{}
 	requestStop := func(reason string) {

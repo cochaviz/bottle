@@ -43,7 +43,7 @@ func detectArchitectureFromDescription(desc string) string {
 	case strings.Contains(lower, "x86-64"), strings.Contains(lower, "x86_64"), strings.Contains(lower, "amd64"):
 		return "x86_64"
 	case strings.Contains(lower, "80386"), strings.Contains(lower, "i386"), strings.Contains(lower, "x86"):
-		return "x86"
+		return "i686"
 	case strings.Contains(lower, "aarch64"), strings.Contains(lower, "arm64"):
 		return "arm64"
 	case strings.Contains(lower, "arm"):
