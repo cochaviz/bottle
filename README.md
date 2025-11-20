@@ -60,6 +60,8 @@ sudo bottle analysis run /srv/samples/beacon.bin --c2 10.66.66.50
 - `bottle sandbox list` – Lists embedded specifications and whether an image exists locally.
 - `bottle analysis run <sample>` – Runs a sample end-to-end. Automatically selects an image by architecture (or honor `--arch`), pushes files from `--sample-dir`, injects a C2 IP, and optionally starts instrumentation. Additional flags: `--sample-args`, `--instrumentation`, `--image-dir`, `--run-dir`, `--connect-uri`, `--sample-timeout`, `--sandbox-lifetime`. Each timeout flag is optional—setting it to `0` disables that safeguard.
 - `bottle daemon serve` – Starts the daemon over a Unix socket (default `/var/run/bottle/daemon.sock`); use `bottle daemon start|stop|list` to interact with it from another terminal/host.
+- `bottle daemon inspect <id>` – Shows the full set of options and runtime data for a worker so you can understand how it completed.
+- `bottle daemon cleanup` – Removes completed workers from the daemon registry after you have inspected the results.
 
 ### Running analyses via the daemon
 ```bash
@@ -75,6 +77,8 @@ bottle daemon stop <id>
 
 The daemon accepts the same flag set as `analysis run` and is ideal for long-running automation or remote clients that only need socket access.
 `bottle daemon list` now shows the sample path and C2 IP (when supplied via `--c2`) so you can see exactly which beacon each worker is pointing at before deciding to stop or restart it.
+
+Use `bottle daemon inspect <id>` any time you need the precise CLI options, timing data, or failure reason for an analysis. After reviewing historical workers, `bottle daemon cleanup` clears them out without touching the currently running jobs.
 
 ### Example systemd service
 When you want the daemon to restart automatically on boot or after an unexpected crash, drop a service definition such as the one below into `/etc/systemd/system/bottled.service` (adjust the binary path, user, sockets, and directories for your host):

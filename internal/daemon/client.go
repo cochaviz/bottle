@@ -85,3 +85,21 @@ func (c *Client) List() ([]WorkerStatus, error) {
 	}
 	return statuses, nil
 }
+
+func (c *Client) Inspect(id string) (WorkerDetails, error) {
+	var detail WorkerDetails
+	if err := c.send(IPCRequest{Command: CommandInspect, ID: id}, &detail); err != nil {
+		return WorkerDetails{}, err
+	}
+	return detail, nil
+}
+
+func (c *Client) CleanupInactive() (int, error) {
+	var resp struct {
+		Removed int `json:"removed"`
+	}
+	if err := c.send(IPCRequest{Command: CommandCleanup}, &resp); err != nil {
+		return 0, err
+	}
+	return resp.Removed, nil
+}

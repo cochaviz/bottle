@@ -21,9 +21,11 @@ import (
 type Command string
 
 const (
-	CommandStart Command = "start_analysis"
-	CommandStop  Command = "stop_analysis"
-	CommandList  Command = "list"
+	CommandStart   Command = "start_analysis"
+	CommandStop    Command = "stop_analysis"
+	CommandList    Command = "list"
+	CommandInspect Command = "inspect"
+	CommandCleanup Command = "cleanup_inactive"
 )
 
 type IPCRequest struct {
@@ -54,21 +56,29 @@ type StartAnalysisRequest struct {
 }
 
 type workerHandle struct {
-	id      string
-	opts    StartAnalysisRequest
-	cancel  context.CancelFunc
-	done    chan struct{}
-	started time.Time
-	err     error
+	id         string
+	opts       StartAnalysisRequest
+	cancel     context.CancelFunc
+	done       chan struct{}
+	started    time.Time
+	err        error
+	finishedAt *time.Time
 }
 
 type WorkerStatus struct {
-	ID        string    `json:"id"`
-	Sample    string    `json:"sample"`
-	C2Ip      string    `json:"c2_ip"`
-	StartedAt time.Time `json:"started_at"`
-	Running   bool      `json:"running"`
-	Error     string    `json:"error,omitempty"`
+	ID          string     `json:"id"`
+	Sample      string     `json:"sample"`
+	C2Ip        string     `json:"c2_ip"`
+	StartedAt   time.Time  `json:"started_at"`
+	Running     bool       `json:"running"`
+	Error       string     `json:"error,omitempty"`
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
+}
+
+type WorkerDetails struct {
+	Status   WorkerStatus         `json:"status"`
+	Options  StartAnalysisRequest `json:"options"`
+	Duration time.Duration        `json:"duration"`
 }
 
 type Daemon struct {
@@ -161,6 +171,10 @@ func (d *Daemon) handleConn(conn net.Conn) {
 		d.handleStop(conn, req.ID)
 	case CommandList:
 		d.handleList(conn)
+	case CommandInspect:
+		d.handleInspect(conn, req.ID)
+	case CommandCleanup:
+		d.handleCleanup(conn)
 	default:
 		d.writeResponse(conn, IPCResponse{OK: false, Error: fmt.Sprintf("unknown command %q", req.Command)})
 	}
@@ -198,25 +212,32 @@ func (d *Daemon) handleList(conn net.Conn) {
 
 	statuses := make([]WorkerStatus, 0, len(d.workers))
 	for _, handle := range d.workers {
-		status := WorkerStatus{
-			ID:        handle.id,
-			Sample:    handle.opts.SamplePath,
-			StartedAt: handle.started,
-			C2Ip:      handle.opts.C2Address,
-			Running:   true,
-		}
-		select {
-		case <-handle.done:
-			status.Running = false
-			if handle.err != nil {
-				status.Error = handle.err.Error()
-			}
-		default:
-		}
-		statuses = append(statuses, status)
+		statuses = append(statuses, d.workerStatusLocked(handle))
 	}
 
 	d.writeResponse(conn, IPCResponse{OK: true, Data: statuses})
+}
+
+func (d *Daemon) handleInspect(conn net.Conn, id string) {
+	if strings.TrimSpace(id) == "" {
+		d.writeResponse(conn, IPCResponse{OK: false, Error: "id is required"})
+		return
+	}
+
+	detail, err := d.inspectWorker(id)
+	if err != nil {
+		d.writeResponse(conn, IPCResponse{OK: false, Error: err.Error()})
+		return
+	}
+	d.writeResponse(conn, IPCResponse{OK: true, Data: detail})
+}
+
+func (d *Daemon) handleCleanup(conn net.Conn) {
+	removed := d.cleanupInactiveWorkers()
+	d.writeResponse(conn, IPCResponse{OK: true, Data: map[string]int{"removed": removed}})
+	if removed > 0 {
+		d.logger.Info("cleaned up inactive workers", "count", removed)
+	}
 }
 
 func (d *Daemon) writeResponse(conn net.Conn, resp IPCResponse) {
@@ -234,6 +255,9 @@ func (d *Daemon) startAnalysis(req StartAnalysisRequest) (string, error) {
 	id := strings.TrimSpace(req.ID)
 	if id == "" {
 		id = uuid.New().String()
+	}
+	if strings.TrimSpace(req.ID) == "" {
+		req.ID = id
 	}
 
 	d.mu.Lock()
@@ -270,11 +294,16 @@ func (d *Daemon) startAnalysis(req StartAnalysisRequest) (string, error) {
 			req.SandboxLifetime,
 			logger,
 		)
+		finishedAt := time.Now()
+		d.mu.Lock()
 		handle.err = err
+		handle.finishedAt = &finishedAt
+		d.mu.Unlock()
 		if err != nil {
 			logger.Error("analysis failed", "error", err)
+			return
 		}
-		d.removeWorker(id, err)
+		logger.Info("analysis completed")
 	}()
 
 	return id, nil
@@ -296,15 +325,6 @@ func (d *Daemon) stopAnalysis(id string) error {
 	return nil
 }
 
-func (d *Daemon) removeWorker(id string, err error) {
-	d.mu.Lock()
-	delete(d.workers, id)
-	d.mu.Unlock()
-	if err == nil {
-		d.logger.Info("analysis completed", "id", id)
-	}
-}
-
 func (d *Daemon) stopAll() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -317,4 +337,63 @@ func (d *Daemon) stopAll() {
 		}
 		delete(d.workers, id)
 	}
+}
+
+func (d *Daemon) workerStatusLocked(handle *workerHandle) WorkerStatus {
+	status := WorkerStatus{
+		ID:        handle.id,
+		Sample:    handle.opts.SamplePath,
+		StartedAt: handle.started,
+		C2Ip:      handle.opts.C2Address,
+		Running:   true,
+	}
+	select {
+	case <-handle.done:
+		status.Running = false
+		if handle.finishedAt != nil {
+			status.CompletedAt = handle.finishedAt
+		}
+		if handle.err != nil {
+			status.Error = handle.err.Error()
+		}
+	default:
+	}
+	return status
+}
+
+func (d *Daemon) inspectWorker(id string) (WorkerDetails, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	handle, ok := d.workers[id]
+	if !ok {
+		return WorkerDetails{}, fmt.Errorf("analysis %q not found", id)
+	}
+	status := d.workerStatusLocked(handle)
+	detail := WorkerDetails{
+		Status:   status,
+		Options:  handle.opts,
+		Duration: time.Since(handle.started),
+	}
+	if !status.Running && status.CompletedAt != nil {
+		detail.Duration = status.CompletedAt.Sub(handle.started)
+	}
+	if detail.Options.ID == "" {
+		detail.Options.ID = handle.id
+	}
+	return detail, nil
+}
+
+func (d *Daemon) cleanupInactiveWorkers() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	removed := 0
+	for id, handle := range d.workers {
+		select {
+		case <-handle.done:
+			delete(d.workers, id)
+			removed++
+		default:
+		}
+	}
+	return removed
 }

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -353,6 +354,8 @@ func newDaemonCommand(logger *slog.Logger) *cobra.Command {
 		newDaemonStartAnalysisCommand(logger, resolveSocket),
 		newDaemonStopAnalysisCommand(resolveSocket),
 		newDaemonListCommand(resolveSocket),
+		newDaemonInspectCommand(resolveSocket),
+		newDaemonCleanupCommand(resolveSocket),
 	)
 
 	return cmd
@@ -475,9 +478,90 @@ func newDaemonListCommand(socketPath func() string) *cobra.Command {
 					if status.Error != "" {
 						state = fmt.Sprintf("failed (%s)", status.Error)
 					}
+					if status.CompletedAt != nil {
+						state = fmt.Sprintf("%s at %s", state, status.CompletedAt.Format(time.RFC3339))
+					}
 				}
 				fmt.Fprintf(out, "%s\t%s\t%s\n", status.ID, status.Sample, state)
 			}
+			return nil
+		},
+	}
+}
+
+func newDaemonInspectCommand(socketPath func() string) *cobra.Command {
+	return &cobra.Command{
+		Use:   "inspect <id>",
+		Args:  cobra.ExactArgs(1),
+		Short: "Inspect a single analysis managed by the daemon",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id := strings.TrimSpace(args[0])
+			if id == "" {
+				return fmt.Errorf("id is required")
+			}
+			client := daemon.NewClient(socketPath())
+			detail, err := client.Inspect(id)
+			if err != nil {
+				return err
+			}
+			out := cmd.OutOrStdout()
+			status := detail.Status
+			fmt.Fprintf(out, "ID:\t%s\n", status.ID)
+			fmt.Fprintf(out, "Sample:\t%s\n", status.Sample)
+			if status.C2Ip != "" {
+				fmt.Fprintf(out, "C2:\t%s\n", status.C2Ip)
+			}
+			fmt.Fprintf(out, "Started:\t%s\n", status.StartedAt.Format(time.RFC3339))
+			if status.CompletedAt != nil {
+				fmt.Fprintf(out, "Completed:\t%s\n", status.CompletedAt.Format(time.RFC3339))
+			}
+			fmt.Fprintf(out, "Running:\t%t\n", status.Running)
+			if status.Error != "" {
+				fmt.Fprintf(out, "Error:\t%s\n", status.Error)
+			}
+			fmt.Fprintf(out, "Runtime:\t%s\n", detail.Duration)
+
+			opts := detail.Options
+			fmt.Fprintln(out, "Options:")
+			printOption := func(key, value string) {
+				if strings.TrimSpace(value) == "" {
+					return
+				}
+				fmt.Fprintf(out, "  %s: %s\n", key, value)
+			}
+			printDuration := func(key string, value time.Duration) {
+				if value <= 0 {
+					return
+				}
+				fmt.Fprintf(out, "  %s: %s\n", key, value)
+			}
+			printOption("ImageDir", opts.ImageDir)
+			printOption("RunDir", opts.RunDir)
+			printOption("ConnectionURI", opts.ConnectionURI)
+			printOption("OverrideArch", opts.OverrideArch)
+			if len(opts.SampleArgs) > 0 {
+				fmt.Fprintf(out, "  SampleArgs: %s\n", strings.Join(opts.SampleArgs, " "))
+			}
+			printOption("Instrumentation", opts.Instrumentation)
+			printDuration("SampleTimeout", opts.SampleTimeout)
+			printDuration("SandboxLifetime", opts.SandboxLifetime)
+			printOption("LogLevel", opts.LogLevel)
+			return nil
+		},
+	}
+}
+
+func newDaemonCleanupCommand(socketPath func() string) *cobra.Command {
+	return &cobra.Command{
+		Use:   "cleanup",
+		Short: "Remove completed analyses from the daemon",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			client := daemon.NewClient(socketPath())
+			removed, err := client.CleanupInactive()
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "removed %d completed worker(s)\n", removed)
 			return nil
 		},
 	}
