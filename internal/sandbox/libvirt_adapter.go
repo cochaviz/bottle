@@ -401,7 +401,7 @@ func (d *LibvirtDriver) Execute(lease SandboxLease, command SandboxCommand) (San
 	}
 
 	timeout := command.Timeout
-	if timeout <= 0 {
+	if timeout < 0 {
 		timeout = guestMountTimeout
 	}
 

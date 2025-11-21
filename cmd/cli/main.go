@@ -21,7 +21,7 @@ import (
 	"github.com/cochaviz/bottle/internal/setup"
 )
 
-const defaultLogLevel = "warning"
+const defaultLogLevel = "info"
 
 func StartCLI() {
 	var levelVar slog.LevelVar

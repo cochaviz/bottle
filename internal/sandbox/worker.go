@@ -104,8 +104,11 @@ func (w *SandboxWorker) Run(ctx context.Context) (err error) {
 	for {
 		select {
 		case signal := <-w.signals:
-			if err := w.handleSignal(signal); err != nil {
+			if err := w.handleSignal(ctx, signal); err != nil {
 				if errors.Is(err, errSandboxWorkerStop) {
+					return nil
+				}
+				if errors.Is(err, context.Canceled) {
 					return nil
 				}
 				return err
@@ -125,7 +128,7 @@ func (w *SandboxWorker) Run(ctx context.Context) (err error) {
 	}
 }
 
-func (w *SandboxWorker) handleSignal(signal SandboxWorkerSignal) error {
+func (w *SandboxWorker) handleSignal(ctx context.Context, signal SandboxWorkerSignal) error {
 	switch signal.Type {
 	case SandboxWorkerSignalExecuteCommand:
 		if signal.Command == nil {
@@ -134,18 +137,28 @@ func (w *SandboxWorker) handleSignal(signal SandboxWorkerSignal) error {
 			signal.respond(SandboxWorkerSignalResponse{Err: err})
 			return nil
 		}
-		result, err := w.driver.Execute(w.lease, *signal.Command)
-		if err != nil {
-			w.logger.Error("sandbox command failed", "error", err, "path", signal.Command.Path)
-		} else {
-			w.logger.Info("sandbox command completed", "path", signal.Command.Path)
+		resultCh := make(chan SandboxWorkerSignalResponse, 1)
+		go func() {
+			result, err := w.driver.Execute(w.lease, *signal.Command)
+			if err != nil {
+				w.logger.Error("sandbox command failed", "error", err, "path", signal.Command.Path)
+			} else {
+				w.logger.Info("sandbox command completed", "path", signal.Command.Path)
+			}
+			resCopy := result
+			resultCh <- SandboxWorkerSignalResponse{
+				Result: &resCopy,
+				Err:    err,
+			}
+		}()
+
+		select {
+		case resp := <-resultCh:
+			signal.respond(resp)
+		case <-ctx.Done():
+			signal.respond(SandboxWorkerSignalResponse{Err: ctx.Err()})
+			return ctx.Err()
 		}
-		// result is copied regardless of err so callers can inspect partial output.
-		resCopy := result
-		signal.respond(SandboxWorkerSignalResponse{
-			Result: &resCopy,
-			Err:    err,
-		})
 		return nil
 	case SandboxWorkerSignalStop:
 		w.logger.Info("sandbox stop signal received")

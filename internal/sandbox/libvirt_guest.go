@@ -14,6 +14,10 @@ import (
 
 var ErrGuestCommandTimedOut = errors.New("guest command timed out")
 
+type qemuAgentDomain interface {
+	QemuAgentCommand(string, libvirt.DomainQemuAgentCommandTimeout, uint32) (string, error)
+}
+
 const (
 	// GuestSetupMountPath is the directory inside the guest where setup artifacts are mounted.
 	GuestSetupMountPath = "/mnt/bottle_setup"
@@ -115,7 +119,7 @@ func (d *LibvirtDriver) configureGuestMounts(domain *libvirt.Domain, lease *Sand
 	return strings.TrimSpace(mounts.Setup), strings.TrimSpace(mounts.Sample), nil
 }
 
-func waitForGuestAgent(domain *libvirt.Domain, interval time.Duration, retries int) error {
+func waitForGuestAgent(domain qemuAgentDomain, interval time.Duration, retries int) error {
 	if retries <= 0 {
 		retries = 1
 	}
@@ -180,16 +184,13 @@ printf '{"setup":"%%s","sample":"%%s"}' "$setup_path" "$sample_path"
 `, boolToInt(needSetup), boolToInt(needSample), GuestSetupMountPath, GuestSampleMountPath)
 }
 
-func runGuestShellCommand(domain *libvirt.Domain, script string, timeout time.Duration) (guestCommandResult, error) {
+func runGuestShellCommand(domain qemuAgentDomain, script string, timeout time.Duration) (guestCommandResult, error) {
 	return runGuestCommand(domain, "/bin/sh", []string{"-c", script}, timeout)
 }
 
-func runGuestCommand(domain *libvirt.Domain, path string, args []string, timeout time.Duration) (guestCommandResult, error) {
+func runGuestCommand(domain qemuAgentDomain, path string, args []string, timeout time.Duration) (guestCommandResult, error) {
 	if strings.TrimSpace(path) == "" {
 		return guestCommandResult{}, errors.New("guest command path is required")
-	}
-	if timeout <= 0 {
-		timeout = guestMountTimeout
 	}
 	if args == nil {
 		args = []string{}
@@ -224,8 +225,11 @@ func runGuestCommand(domain *libvirt.Domain, path string, args []string, timeout
 	return waitForGuestCommand(domain, execResp.Return.PID, timeout)
 }
 
-func waitForGuestCommand(domain *libvirt.Domain, pid int, timeout time.Duration) (guestCommandResult, error) {
-	deadline := time.Now().Add(timeout)
+func waitForGuestCommand(domain qemuAgentDomain, pid int, timeout time.Duration) (guestCommandResult, error) {
+	var deadline time.Time
+	if timeout > 0 {
+		deadline = time.Now().Add(timeout)
+	}
 	req := guestExecStatusRequest{
 		Execute: "guest-exec-status",
 		Arguments: guestExecStatusArguments{
@@ -260,7 +264,7 @@ func waitForGuestCommand(domain *libvirt.Domain, pid int, timeout time.Duration)
 			return result, nil
 		}
 
-		if time.Now().After(deadline) {
+		if !deadline.IsZero() && time.Now().After(deadline) {
 			return guestCommandResult{}, ErrGuestCommandTimedOut
 		}
 		time.Sleep(500 * time.Millisecond)
