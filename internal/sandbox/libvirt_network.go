@@ -112,6 +112,54 @@ func ListNetworkLeases(connectionURI, networkName string) ([]NetworkLease, error
 	return driver.GetLeases()
 }
 
+// ListPinnedDHCPHosts returns the static DHCP host mappings configured on the network.
+func ListPinnedDHCPHosts(connectionURI, networkName string) ([]NetworkLease, error) {
+	connectionURI = strings.TrimSpace(connectionURI)
+	if connectionURI == "" {
+		return nil, fmt.Errorf("connection URI is required")
+	}
+	networkName = strings.TrimSpace(networkName)
+	if networkName == "" {
+		return nil, fmt.Errorf("network name is required")
+	}
+
+	conn, err := libvirt.NewConnect(connectionURI)
+	if err != nil {
+		return nil, fmt.Errorf("open libvirt connection %s: %w", connectionURI, err)
+	}
+	defer conn.Close()
+
+	network, err := conn.LookupNetworkByName(networkName)
+	if err != nil {
+		return nil, fmt.Errorf("lookup network %s: %w", networkName, err)
+	}
+	defer network.Free()
+
+	return listPinnedDHCPHostsFromNetwork(network)
+}
+
+func listPinnedDHCPHostsFromNetwork(network *libvirt.Network) ([]NetworkLease, error) {
+	xmlDesc, err := describeNetworkXML(network)
+	if err != nil {
+		return nil, fmt.Errorf("describe network: %w", err)
+	}
+	cfg, err := parseNetworkDHCPConfig(xmlDesc)
+	if err != nil {
+		return nil, err
+	}
+	hosts := make([]NetworkLease, 0, len(cfg.Hosts))
+	for _, host := range cfg.Hosts {
+		if host.IP == nil {
+			continue
+		}
+		hosts = append(hosts, NetworkLease{
+			MAC: strings.ToLower(strings.TrimSpace(host.MAC)),
+			IP:  host.IP,
+		})
+	}
+	return hosts, nil
+}
+
 func (n *libvirtNetworkDriver) Acquire(mac string) (NetworkLease, error) {
 	if n == nil || n.network == nil {
 		return NetworkLease{}, fmt.Errorf("libvirt network handle is required")

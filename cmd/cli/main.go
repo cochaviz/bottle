@@ -651,10 +651,11 @@ func newNetworkLeasesCommand(logger *slog.Logger) *cobra.Command {
 	var (
 		connectionURI string
 		networkName   string
+		pinnedOnly    bool
 	)
 	cmd := &cobra.Command{
 		Use:   "leases",
-		Short: "List DHCP leases for a libvirt network",
+		Short: "List DHCP leases or pinned hosts for a libvirt network",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			connectionURI = strings.TrimSpace(connectionURI)
 			if connectionURI == "" {
@@ -665,12 +666,29 @@ func newNetworkLeasesCommand(logger *slog.Logger) *cobra.Command {
 				networkName = sandbox.DefaultNetworkName
 			}
 
+			out := cmd.OutOrStdout()
+			if pinnedOnly {
+				hosts, err := sandbox.ListPinnedDHCPHosts(connectionURI, networkName)
+				if err != nil {
+					return err
+				}
+				if len(hosts) == 0 {
+					fmt.Fprintln(out, "no pinned DHCP hosts")
+					return nil
+				}
+				fmt.Fprintf(out, "Network: %s (URI: %s) — pinned DHCP hosts\n", networkName, connectionURI)
+				fmt.Fprintln(out, "MAC\tIP")
+				for _, host := range hosts {
+					fmt.Fprintf(out, "%s\t%s\n", strings.ToLower(strings.TrimSpace(host.MAC)), host.IP)
+				}
+				return nil
+			}
+
 			leases, err := sandbox.ListNetworkLeases(connectionURI, networkName)
 			if err != nil {
 				return err
 			}
 
-			out := cmd.OutOrStdout()
 			if len(leases) == 0 {
 				fmt.Fprintln(out, "no leases")
 				return nil
@@ -685,6 +703,7 @@ func newNetworkLeasesCommand(logger *slog.Logger) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&connectionURI, "connect-uri", config.DefaultConnectionURI, "Libvirt connection URI")
 	cmd.Flags().StringVar(&networkName, "network", sandbox.DefaultNetworkName, "Libvirt network name")
+	cmd.Flags().BoolVar(&pinnedOnly, "pinned", false, "Show pinned DHCP host mappings instead of active leases")
 	return cmd
 }
 
