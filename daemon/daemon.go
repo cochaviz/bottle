@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cochaviz/bottle/arch"
+
 	"github.com/google/uuid"
 
 	config "github.com/cochaviz/bottle/config"
@@ -41,18 +43,18 @@ type IPCResponse struct {
 }
 
 type StartAnalysisRequest struct {
-	ID              string        `json:"id,omitempty"`
-	SamplePath      string        `json:"sample_path"`
-	C2Address       string        `json:"c2_address,omitempty"`
-	ImageDir        string        `json:"image_dir,omitempty"`
-	RunDir          string        `json:"run_dir,omitempty"`
-	ConnectionURI   string        `json:"connection_uri,omitempty"`
-	OverrideArch    string        `json:"override_arch,omitempty"`
-	SampleArgs      []string      `json:"sample_args,omitempty"`
-	Instrumentation string        `json:"instrumentation,omitempty"`
-	SampleTimeout   time.Duration `json:"sample_timeout,omitempty"`
-	SandboxLifetime time.Duration `json:"sandbox_lifetime,omitempty"`
-	LogLevel        string        `json:"log_level,omitempty"`
+	ID              string            `json:"id,omitempty"`
+	SamplePath      string            `json:"sample_path"`
+	C2Address       string            `json:"c2_address,omitempty"`
+	ImageDir        string            `json:"image_dir,omitempty"`
+	RunDir          string            `json:"run_dir,omitempty"`
+	ConnectionURI   string            `json:"connection_uri,omitempty"`
+	OverrideArch    arch.Architecture `json:"override_arch,omitempty"`
+	SampleArgs      []string          `json:"sample_args,omitempty"`
+	Instrumentation string            `json:"instrumentation,omitempty"`
+	SampleTimeout   time.Duration     `json:"sample_timeout,omitempty"`
+	SandboxLifetime time.Duration     `json:"sandbox_lifetime,omitempty"`
+	LogLevel        string            `json:"log_level,omitempty"`
 }
 
 type workerHandle struct {
@@ -251,6 +253,13 @@ func (d *Daemon) startAnalysis(req StartAnalysisRequest) (string, error) {
 	}
 	if strings.TrimSpace(req.SamplePath) == "" {
 		return "", errors.New("sample_path is required")
+	}
+	if req.OverrideArch != "" {
+		parsed, err := arch.Parse(req.OverrideArch.String())
+		if err != nil {
+			return "", fmt.Errorf("invalid override architecture: %w", err)
+		}
+		req.OverrideArch = parsed
 	}
 	id := strings.TrimSpace(req.ID)
 	if id == "" {

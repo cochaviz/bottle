@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cochaviz/bottle/arch"
 	"github.com/cochaviz/bottle/internal/sandbox"
 )
 
@@ -40,7 +41,7 @@ type AnalysisWorker struct {
 	imageRepo sandbox.ImageRepository
 
 	c2Ip                   string
-	archOverride           string
+	archOverride           arch.Architecture
 	sample                 Sample
 	sampleArgs             []string
 	instrumentation        []Instrumentation
@@ -55,7 +56,7 @@ func NewAnalysisWorker(
 	driver sandbox.SandboxDriver,
 	imageRepo sandbox.ImageRepository,
 	c2Ip string,
-	archOverride string,
+	archOverride arch.Architecture,
 	sample Sample,
 	sampleArgs []string,
 	instrumentation []Instrumentation,
@@ -73,7 +74,7 @@ func NewAnalysisWorker(
 		driver:                 driver,
 		imageRepo:              imageRepo,
 		c2Ip:                   c2Ip,
-		archOverride:           strings.TrimSpace(archOverride),
+		archOverride:           archOverride,
 		sample:                 sample,
 		sampleArgs:             append([]string(nil), sampleArgs...),
 		instrumentation:        append([]Instrumentation(nil), instrumentation...),
@@ -83,22 +84,25 @@ func NewAnalysisWorker(
 }
 
 func (w *AnalysisWorker) Run(ctx context.Context) error {
-	arch := w.archOverride
-	if arch == "" {
-		predicted_arch, err := determineSampleArchitecture(w.sample)
+	architecture := w.archOverride
+	if architecture == "" {
+		predictedArch, err := determineSampleArchitecture(w.sample)
 
 		if err != nil {
 			return fmt.Errorf("unable to determine architecture for %q: %w", w.sample.Name, err)
 		}
-		arch = predicted_arch
+		architecture = predictedArch
+	}
+	if architecture != "" && !architecture.IsValid() {
+		return fmt.Errorf("unsupported architecture %q", architecture)
 	}
 
-	sandboxImages, err := w.imageRepo.FilterByArchitecture(arch)
+	sandboxImages, err := w.imageRepo.FilterByArchitecture(architecture)
 	if err != nil {
 		return fmt.Errorf("filter sandbox image by architecture: %w", err)
 	}
 	if len(sandboxImages) == 0 {
-		return fmt.Errorf("no sandbox image found for architecture %q", arch)
+		return fmt.Errorf("no sandbox image found for architecture %q", architecture)
 	}
 
 	sampleDir := filepath.Dir(w.sample.Artifact)
@@ -474,7 +478,7 @@ func (w *AnalysisWorker) writeAnalysisConfig(lease sandbox.SandboxLease) {
 		SamplePath:             w.sample.Artifact,
 		SampleArgs:             append([]string(nil), w.sampleArgs...),
 		C2Address:              strings.TrimSpace(w.c2Ip),
-		ArchOverride:           strings.TrimSpace(w.archOverride),
+		ArchOverride:           w.archOverride.String(),
 		StartTime:              lease.StartTime,
 		RunDir:                 lease.RunDir,
 		LogDir:                 w.logDir,

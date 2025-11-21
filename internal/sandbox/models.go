@@ -1,8 +1,10 @@
 package sandbox
 
 import (
-	"github.com/cochaviz/bottle/internal/artifacts"
 	"time"
+
+	"github.com/cochaviz/bottle/arch"
+	"github.com/cochaviz/bottle/internal/artifacts"
 )
 
 // BootMethod represents the supported boot mechanisms for a run profile.
@@ -16,7 +18,7 @@ const (
 
 // DomainProfile defines the VM hardware profile for building and running the sandbox.
 type DomainProfile struct {
-	Arch         string
+	Arch         arch.Architecture
 	Machine      *string
 	CPUModel     *string
 	VCPUs        int

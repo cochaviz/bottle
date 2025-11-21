@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/cochaviz/bottle/arch"
 	"github.com/cochaviz/bottle/internal/build"
 	"github.com/cochaviz/bottle/internal/sandbox"
 )
@@ -35,7 +36,7 @@ func TestDeriveConfigPopulatesFields(t *testing.T) {
 			},
 			SandboxSpecification: sandbox.SandboxSpecification{
 				DomainProfile: sandbox.DomainProfile{
-					Arch:         "amd64",
+					Arch:         arch.X86_64,
 					Machine:      &machine,
 					VCPUs:        4,
 					RAMMB:        8192,
@@ -101,7 +102,7 @@ func TestDeriveConfigValidatesPreseedPresence(t *testing.T) {
 		Spec: build.BuildSpecification{
 			SandboxSpecification: sandbox.SandboxSpecification{
 				DomainProfile: sandbox.DomainProfile{
-					Arch:         "amd64",
+					Arch:         arch.X86_64,
 					NetworkModel: "virtio",
 				},
 			},
@@ -159,7 +160,7 @@ func TestDeriveConfigHandlesPreseedFile(t *testing.T) {
 			},
 			SandboxSpecification: sandbox.SandboxSpecification{
 				DomainProfile: sandbox.DomainProfile{
-					Arch:         "amd64",
+					Arch:         arch.X86_64,
 					NetworkModel: "virtio",
 				},
 			},

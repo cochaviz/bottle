@@ -193,7 +193,7 @@ func buildDomainTemplateData(name, overlayPath string, spec SandboxSpecification
 		Name:          name,
 		RAM:           ram,
 		VCPUs:         vcpus,
-		VirtArch:      strings.TrimSpace(domainProfile.Arch),
+		VirtArch:      strings.TrimSpace(domainProfile.Arch.String()),
 		Machine:       domainProfile.Machine,
 		KernelPath:    runProfile.KernelPath,
 		InitrdPath:    runProfile.InitrdPath,

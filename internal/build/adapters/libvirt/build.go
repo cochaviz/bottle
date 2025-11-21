@@ -177,7 +177,7 @@ func deriveConfig(ctx build.BuildContext, env LibvirtBuildEnvironment) (*BuildCo
 	config := &BuildConfig{
 		Console:    spec.Profile.Console,
 		Release:    spec.Profile.Release,
-		Arch:       canonicalizeArch(domainProfile.Arch),
+		Arch:       canonicalizeArch(domainProfile.Arch.String()),
 		DiskSizeGB: spec.Profile.DiskSizeGB,
 		DiskFormat: "qcow2",
 		ExtraArgs:  append([]string(nil), domainProfile.ExtraArgs...),

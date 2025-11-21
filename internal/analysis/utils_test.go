@@ -2,6 +2,8 @@ package analysis
 
 import (
 	"testing"
+
+	"github.com/cochaviz/bottle/arch"
 )
 
 func TestDetectArchitectureFromDescription(t *testing.T) {
@@ -9,35 +11,35 @@ func TestDetectArchitectureFromDescription(t *testing.T) {
 
 	tests := []struct {
 		desc string
-		want string
+		want arch.Architecture
 	}{
 		{
 			desc: "ELF 64-bit LSB executable, x86-64, version 1 (SYSV)",
-			want: "x86_64",
+			want: arch.X86_64,
 		},
 		{
 			desc: "ELF 32-bit LSB executable, Intel 80386, version 1 (SYSV)",
-			want: "x86",
+			want: arch.I686,
 		},
 		{
 			desc: "ELF 64-bit LSB executable, ARM aarch64, version 1 (SYSV)",
-			want: "arm64",
+			want: arch.AArch64,
 		},
 		{
 			desc: "ELF 32-bit LSB executable, ARM, EABI5 version 1 (SYSV)",
-			want: "arm",
+			want: arch.ARMV7L,
 		},
 		{
 			desc: "ELF 64-bit MSB executable, MIPS, MIPS64 rel2 version 1 (SYSV)",
-			want: "mips64",
+			want: arch.MIPS64,
 		},
 		{
 			desc: "ELF 64-bit MSB executable, 64-bit PowerPC or cisco 7500, version 1",
-			want: "ppc64",
+			want: arch.PPC64LE,
 		},
 		{
 			desc: "data",
-			want: "",
+			want: arch.Architecture(""),
 		},
 	}
 
@@ -82,19 +84,19 @@ func TestHostArchitectureFor(t *testing.T) {
 
 	tests := []struct {
 		goarch string
-		want   string
+		want   arch.Architecture
 	}{
-		{"amd64", "x86_64"},
-		{"386", "x86"},
-		{"arm64", "arm64"},
-		{"arm", "arm"},
-		{"mips64", "mips64"},
-		{"mips", "mips"},
-		{"ppc64", "ppc64"},
-		{"ppc64le", "ppc64"},
-		{"ppc", "ppc"},
-		{"s390x", "s390x"},
-		{"wasm", ""},
+		{"amd64", arch.X86_64},
+		{"386", arch.I686},
+		{"arm64", arch.AArch64},
+		{"arm", arch.ARMV7L},
+		{"mips64", arch.MIPS64},
+		{"mips", arch.MIPS},
+		{"ppc64", arch.PPC64LE},
+		{"ppc64le", arch.PPC64LE},
+		{"ppc", arch.Architecture("")},
+		{"s390x", arch.S390X},
+		{"wasm", arch.Architecture("")},
 	}
 
 	for _, tt := range tests {

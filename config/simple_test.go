@@ -1,23 +1,25 @@
 package simple
 
 import (
-	specifications "github.com/cochaviz/bottle/internal/build/repositories"
 	"os"
 	"testing"
+
+	"github.com/cochaviz/bottle/arch"
+	specifications "github.com/cochaviz/bottle/internal/build/repositories"
 )
 
 func TestSimpleBuild(t *testing.T) {
 	specRepo := specifications.NewEmbeddedSpecificationRepository()
-	arch := "amd64"
+	targetArch := arch.X86_64
 
-	specs, err := specRepo.FilterByArchitecture(arch)
+	specs, err := specRepo.FilterByArchitecture(targetArch)
 
 	if err != nil {
 		t.Errorf("Error filtering specifications: %v", err)
 		return
 	}
 	if len(specs) == 0 {
-		t.Errorf("No specifications found for architecture %s", arch)
+		t.Errorf("No specifications found for architecture %s", targetArch)
 		return
 	}
 	tempImageDir := os.TempDir()

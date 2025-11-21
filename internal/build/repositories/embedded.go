@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/cochaviz/bottle/arch"
 	"github.com/cochaviz/bottle/internal/artifacts"
 	"github.com/cochaviz/bottle/internal/build"
 	"github.com/cochaviz/bottle/internal/sandbox"
@@ -81,7 +82,10 @@ func (r *EmbeddedSpecificationRepository) ListAll() ([]build.BuildSpecification,
 }
 
 // FilterByArchitecture returns specs matching the requested architecture.
-func (r *EmbeddedSpecificationRepository) FilterByArchitecture(architecture string) ([]build.BuildSpecification, error) {
+func (r *EmbeddedSpecificationRepository) FilterByArchitecture(architecture arch.Architecture) ([]build.BuildSpecification, error) {
+	if architecture != "" && !architecture.IsValid() {
+		return nil, fmt.Errorf("unsupported architecture %q", architecture)
+	}
 	if architecture == "" {
 		return r.ListAll()
 	}
@@ -93,13 +97,13 @@ func (r *EmbeddedSpecificationRepository) FilterByArchitecture(architecture stri
 
 	var matched []build.BuildSpecification
 	for _, spec := range all {
-		if strings.EqualFold(spec.SandboxSpecification.DomainProfile.Arch, architecture) {
+		if spec.SandboxSpecification.DomainProfile.Arch == architecture {
 			matched = append(matched, spec)
 			continue
 		}
 
 		if spec.SandboxSpecification.Metadata != nil {
-			if arch, ok := spec.SandboxSpecification.Metadata["arch"].(string); ok && strings.EqualFold(arch, architecture) {
+			if metaArch, ok := spec.SandboxSpecification.Metadata["arch"].(string); ok && strings.EqualFold(metaArch, architecture.String()) {
 				matched = append(matched, spec)
 			}
 		}
@@ -123,7 +127,7 @@ func defaultSpecs() []build.BuildSpecification {
 			"https://ftp.debian.org/debian/dists/bookworm/main/installer-amd64/current/images/netboot/debian-installer/amd64/linux",
 			"https://ftp.debian.org/debian/dists/bookworm/main/installer-amd64/current/images/netboot/debian-installer/amd64/initrd.gz",
 			sandbox.DomainProfile{
-				Arch:         "x86_64",
+				Arch:         arch.X86_64,
 				VCPUs:        2,
 				RAMMB:        4096,
 				DiskBus:      "virtio",
@@ -141,7 +145,7 @@ func defaultSpecs() []build.BuildSpecification {
 			"https://ftp.debian.org/debian/dists/bookworm/main/installer-i386/current/images/netboot/debian-installer/i386/linux",
 			"https://ftp.debian.org/debian/dists/bookworm/main/installer-i386/current/images/netboot/debian-installer/i386/initrd.gz",
 			sandbox.DomainProfile{
-				Arch:         "i686",
+				Arch:         arch.I686,
 				Machine:      strPtr("pc"),
 				CPUModel:     strPtr("qemu32"),
 				VCPUs:        1,
@@ -161,7 +165,7 @@ func defaultSpecs() []build.BuildSpecification {
 			"https://ftp.debian.org/debian/dists/bookworm/main/installer-arm64/current/images/netboot/debian-installer/arm64/linux",
 			"https://ftp.debian.org/debian/dists/bookworm/main/installer-arm64/current/images/netboot/debian-installer/arm64/initrd.gz",
 			sandbox.DomainProfile{
-				Arch:         "aarch64",
+				Arch:         arch.AArch64,
 				Machine:      strPtr("virt"),
 				CPUModel:     strPtr("cortex-a72"),
 				VCPUs:        2,
@@ -181,7 +185,7 @@ func defaultSpecs() []build.BuildSpecification {
 			"https://ftp.debian.org/debian/dists/bookworm/main/installer-armhf/current/images/netboot/vmlinuz",
 			"https://ftp.debian.org/debian/dists/bookworm/main/installer-armhf/current/images/netboot/initrd.gz",
 			sandbox.DomainProfile{
-				Arch:         "armv7l",
+				Arch:         arch.ARMV7L,
 				Machine:      strPtr("virt"),
 				CPUModel:     strPtr("cortex-a15"),
 				VCPUs:        2,
@@ -201,7 +205,7 @@ func defaultSpecs() []build.BuildSpecification {
 			"https://ftp.debian.org/debian/dists/bookworm/main/installer-ppc64el/current/images/netboot/debian-installer/ppc64el/vmlinux",
 			"https://ftp.debian.org/debian/dists/bookworm/main/installer-ppc64el/current/images/netboot/debian-installer/ppc64el/initrd.gz",
 			sandbox.DomainProfile{
-				Arch:         "ppc64le",
+				Arch:         arch.PPC64LE,
 				Machine:      strPtr("pseries"),
 				CPUModel:     strPtr("power9"),
 				VCPUs:        2,
@@ -221,7 +225,7 @@ func defaultSpecs() []build.BuildSpecification {
 			"https://ftp.debian.org/debian/dists/bookworm/main/installer-s390x/current/images/netboot/debian-installer/s390x/linux",
 			"https://ftp.debian.org/debian/dists/bookworm/main/installer-s390x/current/images/netboot/debian-installer/s390x/initrd.gz",
 			sandbox.DomainProfile{
-				Arch:         "s390x",
+				Arch:         arch.S390X,
 				Machine:      strPtr("s390-ccw-virtio"),
 				CPUModel:     strPtr("z14"),
 				VCPUs:        2,
@@ -241,7 +245,7 @@ func defaultSpecs() []build.BuildSpecification {
 			"https://ftp.debian.org/debian/dists/bookworm/main/installer-mipsel/current/images/malta/netboot/vmlinuz-6.1.0-39-4kc-malta",
 			"https://ftp.debian.org/debian/dists/bookworm/main/installer-mipsel/current/images/malta/netboot/initrd.gz",
 			sandbox.DomainProfile{
-				Arch:         "mipsel",
+				Arch:         arch.MIPSEL,
 				Machine:      strPtr("malta"),
 				CPUModel:     strPtr("24Kf"),
 				VCPUs:        1,

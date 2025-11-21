@@ -2,6 +2,8 @@ package repositories
 
 import (
 	"testing"
+
+	"github.com/cochaviz/bottle/arch"
 )
 
 func TestRepositoryHasEntries(t *testing.T) {
@@ -20,7 +22,15 @@ func TestRepositoryHasEntries(t *testing.T) {
 func TestRepositoryHasCorrectEntries(t *testing.T) {
 	repo := NewEmbeddedSpecificationRepository()
 
-	archs := [5]string{"amd64", "arm64", "x86_64", "i386", "armhf"}
+	archs := []arch.Architecture{
+		arch.X86_64,
+		arch.I686,
+		arch.AArch64,
+		arch.ARMV7L,
+		arch.PPC64LE,
+		arch.S390X,
+		arch.MIPSEL,
+	}
 
 	for _, arch := range archs {
 		specs, err := repo.FilterByArchitecture(arch)

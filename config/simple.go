@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cochaviz/bottle/arch"
 	"github.com/cochaviz/bottle/internal/analysis"
 	"github.com/cochaviz/bottle/internal/artifacts"
 	"github.com/cochaviz/bottle/internal/build"
@@ -241,7 +242,7 @@ func RunAnalysis(
 	imageDir string,
 	runDir string,
 	libvirtConnectionURI string,
-	overrideArch string,
+	overrideArch arch.Architecture,
 	sampleArgs []string,
 	instrumentationConfig string,
 	sampleExecutionTimeout time.Duration,
@@ -252,6 +253,9 @@ func RunAnalysis(
 
 	if strings.TrimSpace(samplePath) == "" {
 		return fmt.Errorf("sample path is required")
+	}
+	if overrideArch != "" && !overrideArch.IsValid() {
+		return fmt.Errorf("unsupported override architecture %q", overrideArch)
 	}
 
 	info, err := os.Stat(samplePath)

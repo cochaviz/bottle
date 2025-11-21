@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cochaviz/bottle/arch"
 	"github.com/cochaviz/bottle/internal/artifacts"
 
 	"github.com/kdomanski/iso9660"
@@ -281,7 +282,7 @@ func testLeaseSpecification(imagePath string) SandboxLeaseSpecification {
 			},
 			ReferenceSpecification: SandboxSpecification{
 				DomainProfile: DomainProfile{
-					Arch:         "x86_64",
+					Arch:         arch.X86_64,
 					VCPUs:        2,
 					RAMMB:        2048,
 					DiskBus:      "virtio",

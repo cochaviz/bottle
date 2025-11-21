@@ -3,12 +3,14 @@ package images
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"time"
 
+	"github.com/cochaviz/bottle/arch"
 	"github.com/cochaviz/bottle/internal/sandbox"
 )
 
@@ -90,7 +92,10 @@ func (rep *LocalImageRepository) Get(imageID string) (*sandbox.SandboxImage, err
 	return rep.loadImage(filepath.Join(rep.BaseDir, imageID+".json"))
 }
 
-func (rep *LocalImageRepository) FilterByArchitecture(architecture string) ([]*sandbox.SandboxImage, error) {
+func (rep *LocalImageRepository) FilterByArchitecture(architecture arch.Architecture) ([]*sandbox.SandboxImage, error) {
+	if architecture != "" && !architecture.IsValid() {
+		return nil, fmt.Errorf("unsupported architecture %q", architecture)
+	}
 	entries, err := os.ReadDir(rep.BaseDir)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -114,7 +119,7 @@ func (rep *LocalImageRepository) FilterByArchitecture(architecture string) ([]*s
 			continue
 		}
 
-		if image.ReferenceSpecification.DomainProfile.Arch != architecture {
+		if architecture != "" && image.ReferenceSpecification.DomainProfile.Arch != architecture {
 			continue
 		}
 

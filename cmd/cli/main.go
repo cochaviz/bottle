@@ -14,6 +14,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/cochaviz/bottle/arch"
 	config "github.com/cochaviz/bottle/config"
 	daemon "github.com/cochaviz/bottle/daemon"
 	"github.com/cochaviz/bottle/internal/analysis"
@@ -336,6 +337,15 @@ func newAnalysisRunCommand(logger *slog.Logger) *cobra.Command {
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 
+			var requestedArch arch.Architecture
+			if strings.TrimSpace(overrideArch) != "" {
+				parsedArch, err := arch.Parse(overrideArch)
+				if err != nil {
+					return err
+				}
+				requestedArch = parsedArch
+			}
+
 			if err := config.RunAnalysis(
 				ctx,
 				absSample,
@@ -343,7 +353,7 @@ func newAnalysisRunCommand(logger *slog.Logger) *cobra.Command {
 				imageDir,
 				runDir,
 				connectionURI,
-				overrideArch,
+				requestedArch,
 				flatSampleArgs,
 				instrumentationConfig,
 				sampleExecutionTimeout,
@@ -450,13 +460,21 @@ func newDaemonStartAnalysisCommand(logger *slog.Logger, socketPath func() string
 			if samplePath == "" {
 				return fmt.Errorf("sample path is required")
 			}
+			var requestedArch arch.Architecture
+			if strings.TrimSpace(overrideArch) != "" {
+				parsedArch, err := arch.Parse(overrideArch)
+				if err != nil {
+					return err
+				}
+				requestedArch = parsedArch
+			}
 			req := daemon.StartAnalysisRequest{
 				SamplePath:      samplePath,
 				C2Address:       c2Address,
 				ImageDir:        imageDir,
 				RunDir:          runDir,
 				ConnectionURI:   connectionURI,
-				OverrideArch:    overrideArch,
+				OverrideArch:    requestedArch,
 				SampleArgs:      flattenSampleArgs(sampleArgs),
 				Instrumentation: instrumentationConfig,
 				SampleTimeout:   sampleExecutionTimeout,
@@ -586,7 +604,7 @@ func newDaemonInspectCommand(socketPath func() string) *cobra.Command {
 			printOption("ImageDir", opts.ImageDir)
 			printOption("RunDir", opts.RunDir)
 			printOption("ConnectionURI", opts.ConnectionURI)
-			printOption("OverrideArch", opts.OverrideArch)
+			printOption("OverrideArch", opts.OverrideArch.String())
 			if len(opts.SampleArgs) > 0 {
 				fmt.Fprintf(out, "  SampleArgs: %s\n", strings.Join(opts.SampleArgs, " "))
 			}
