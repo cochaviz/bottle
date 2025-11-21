@@ -19,6 +19,7 @@ import (
 	daemon "github.com/cochaviz/bottle/daemon"
 	"github.com/cochaviz/bottle/internal/analysis"
 	"github.com/cochaviz/bottle/internal/logging"
+	"github.com/cochaviz/bottle/internal/sandbox"
 	"github.com/cochaviz/bottle/internal/setup"
 )
 
@@ -74,6 +75,7 @@ func newRootCommand(logger *slog.Logger, levelVar *slog.LevelVar) *cobra.Command
 		newSetupCommand(logger),
 		newAnalysisCommand(logger),
 		newDaemonCommand(logger),
+		newNetworkCommand(logger),
 	)
 	return root
 }
@@ -628,6 +630,82 @@ func newDaemonCleanupCommand(socketPath func() string) *cobra.Command {
 				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "removed %d completed worker(s)\n", removed)
+			return nil
+		},
+	}
+}
+
+func newNetworkCommand(logger *slog.Logger) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "network",
+		Short: "Inspect networking state",
+	}
+	cmd.AddCommand(
+		newNetworkLeasesCommand(logger),
+		newNetworkWhitelistsCommand(),
+	)
+	return cmd
+}
+
+func newNetworkLeasesCommand(logger *slog.Logger) *cobra.Command {
+	var (
+		connectionURI string
+		networkName   string
+	)
+	cmd := &cobra.Command{
+		Use:   "leases",
+		Short: "List DHCP leases for a libvirt network",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			connectionURI = strings.TrimSpace(connectionURI)
+			if connectionURI == "" {
+				connectionURI = config.DefaultConnectionURI
+			}
+			networkName = strings.TrimSpace(networkName)
+			if networkName == "" {
+				networkName = sandbox.DefaultNetworkName
+			}
+
+			leases, err := sandbox.ListNetworkLeases(connectionURI, networkName)
+			if err != nil {
+				return err
+			}
+
+			out := cmd.OutOrStdout()
+			if len(leases) == 0 {
+				fmt.Fprintln(out, "no leases")
+				return nil
+			}
+			fmt.Fprintf(out, "Network: %s (URI: %s)\n", networkName, connectionURI)
+			fmt.Fprintln(out, "MAC\tIP")
+			for _, lease := range leases {
+				fmt.Fprintf(out, "%s\t%s\n", strings.ToLower(strings.TrimSpace(lease.MAC)), lease.IP)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&connectionURI, "connect-uri", config.DefaultConnectionURI, "Libvirt connection URI")
+	cmd.Flags().StringVar(&networkName, "network", sandbox.DefaultNetworkName, "Libvirt network name")
+	return cmd
+}
+
+func newNetworkWhitelistsCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "whitelists",
+		Short: "List firewall whitelist rules for sandbox traffic",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			entries, err := analysis.ListWhitelistedIPs()
+			if err != nil {
+				return err
+			}
+			out := cmd.OutOrStdout()
+			if len(entries) == 0 {
+				fmt.Fprintln(out, "no whitelisted entries")
+				return nil
+			}
+			fmt.Fprintln(out, "VM_IP\tDEST_IP")
+			for _, entry := range entries {
+				fmt.Fprintf(out, "%s\t%s\n", entry.VMIP, entry.DestIP)
+			}
 			return nil
 		},
 	}

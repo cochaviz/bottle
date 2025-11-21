@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"os/exec"
+	"sort"
 	"strings"
 
 	"github.com/cochaviz/bottle/internal/sandbox"
@@ -42,8 +43,16 @@ var nftCommand = func(args ...string) ([]byte, error) {
 	return output, nil
 }
 
+var realNftCommand = nftCommand
+
 func PinDhcpLease(lease sandbox.SandboxLease) error {
 	return nil
+}
+
+// WhitelistEntry describes a firewall rule allowing traffic from a VM to a destination.
+type WhitelistEntry struct {
+	VMIP   string
+	DestIP string
 }
 
 func WhitelistIP(lease sandbox.SandboxLease, ip string) (func() error, error) {
@@ -164,6 +173,78 @@ func removeWhitelistRules(comment string) error {
 		}
 	}
 	return nil
+}
+
+// ListWhitelistedIPs returns the current whitelist entries derived from nftables rules.
+func ListWhitelistedIPs() ([]WhitelistEntry, error) {
+	entries := map[string]WhitelistEntry{}
+
+	for _, chain := range whitelistChains {
+		output, err := nftCommand("-a", "list", "chain", chain.Family, chain.Table, chain.Chain)
+		if err != nil {
+			return nil, err
+		}
+
+		scanner := bufio.NewScanner(bytes.NewReader(output))
+		for scanner.Scan() {
+			line := scanner.Text()
+			comment := extractWhitelistComment(line)
+			vm, dst, ok := parseWhitelistComment(comment)
+			if !ok {
+				continue
+			}
+			key := vm + "->" + dst
+			if _, exists := entries[key]; !exists {
+				entries[key] = WhitelistEntry{VMIP: vm, DestIP: dst}
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			return nil, err
+		}
+	}
+
+	result := make([]WhitelistEntry, 0, len(entries))
+	for _, entry := range entries {
+		result = append(result, entry)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].VMIP == result[j].VMIP {
+			return result[i].DestIP < result[j].DestIP
+		}
+		return result[i].VMIP < result[j].VMIP
+	})
+	return result, nil
+}
+
+func extractWhitelistComment(line string) string {
+	needle := `comment "`
+	idx := strings.Index(line, needle)
+	if idx == -1 {
+		return ""
+	}
+	rest := line[idx+len(needle):]
+	end := strings.Index(rest, `"`)
+	if end == -1 {
+		return ""
+	}
+	return rest[:end]
+}
+
+func parseWhitelistComment(comment string) (string, string, bool) {
+	if comment == "" || !strings.HasPrefix(comment, "allow:") {
+		return "", "", false
+	}
+	payload := strings.TrimPrefix(comment, "allow:")
+	parts := strings.Split(payload, "->")
+	if len(parts) != 2 {
+		return "", "", false
+	}
+	vm := strings.TrimSpace(parts[0])
+	dst := strings.TrimSpace(parts[1])
+	if net.ParseIP(vm) == nil || net.ParseIP(dst) == nil {
+		return "", "", false
+	}
+	return vm, dst, true
 }
 
 func ruleHandles(chain nftChain, comment string) ([]string, error) {

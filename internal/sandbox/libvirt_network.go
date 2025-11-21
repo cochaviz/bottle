@@ -11,6 +11,8 @@ import (
 	libvirt "libvirt.org/go/libvirt"
 )
 
+const DefaultNetworkName = "lab_net"
+
 var (
 	describeNetworkXML = func(network *libvirt.Network) (string, error) {
 		return network.GetXMLDesc(0)
@@ -81,6 +83,33 @@ func generateSandboxMAC(seed string) string {
 	mac[0] = (mac[0] | 0x02) & 0xfe
 	return fmt.Sprintf("%02x:%02x:%02x:%02x:%02x:%02x",
 		mac[0], mac[1], mac[2], mac[3], mac[4], mac[5])
+}
+
+// ListNetworkLeases returns DHCP leases for the given libvirt network name.
+func ListNetworkLeases(connectionURI, networkName string) ([]NetworkLease, error) {
+	connectionURI = strings.TrimSpace(connectionURI)
+	if connectionURI == "" {
+		return nil, fmt.Errorf("connection URI is required")
+	}
+	networkName = strings.TrimSpace(networkName)
+	if networkName == "" {
+		return nil, fmt.Errorf("network name is required")
+	}
+
+	conn, err := libvirt.NewConnect(connectionURI)
+	if err != nil {
+		return nil, fmt.Errorf("open libvirt connection %s: %w", connectionURI, err)
+	}
+	defer conn.Close()
+
+	network, err := conn.LookupNetworkByName(networkName)
+	if err != nil {
+		return nil, fmt.Errorf("lookup network %s: %w", networkName, err)
+	}
+	defer network.Free()
+
+	driver := newLibvirtNetworkDriver(network)
+	return driver.GetLeases()
 }
 
 func (n *libvirtNetworkDriver) Acquire(mac string) (NetworkLease, error) {
